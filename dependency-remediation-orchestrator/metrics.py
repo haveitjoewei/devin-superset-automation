@@ -8,18 +8,18 @@ def get_job_metrics():
     with SessionLocal() as session:
         # Basic counts
         total_jobs = session.query(func.count(Job.id)).scalar()
-        validated_jobs = session.query(func.count(Job.id)).filter(Job.state == "validated").scalar()
-        failed_jobs = session.query(func.count(Job.id)).filter(Job.state == "failed").scalar()
+        validated_jobs = session.query(func.count(Job.id)).filter(Job.state == "checks_passed").scalar()
+        failed_jobs = session.query(func.count(Job.id)).filter(Job.state == "checks_failed").scalar()
         needs_human_jobs = session.query(func.count(Job.id)).filter(Job.state == "needs_human").scalar()
-        
+
         # Success rate
         completed_jobs = validated_jobs + failed_jobs
         success_rate = (validated_jobs / completed_jobs * 100) if completed_jobs > 0 else 0
-        
+
         # Throughput (per day/week)
         week_ago = datetime.now(timezone.utc) - timedelta(days=7)
         validated_this_week = session.query(func.count(Job.id)).filter(
-            Job.state == "validated",
+            Job.state == "checks_passed",
             Job.validated_at >= week_ago
         ).scalar()
         throughput_per_day = validated_this_week / 7
@@ -27,7 +27,7 @@ def get_job_metrics():
         
         # Dev hours saved
         dev_hours_saved = session.query(func.sum(Job.effort_hours)).filter(
-            Job.state == "validated"
+            Job.state == "checks_passed"
         ).scalar() or 0
         
         # Devin cost
@@ -42,15 +42,15 @@ def get_job_metrics():
                 func.extract('epoch', Job.validated_at - Job.labeled_at) / 3600
             )
         ).filter(
-            Job.state == "validated",
+            Job.state == "checks_passed",
             Job.validated_at.isnot(None),
             Job.labeled_at.isnot(None)
         ).scalar()
         mttr_hours = float(mttr_results) if mttr_results else 0
-        
+
         # State breakdown
         state_breakdown = {}
-        for state in ["queued", "session_started", "pr_opened", "verifying", "validated", "failed", "needs_human"]:
+        for state in ["queued", "fixing", "checks_running", "checks_passed", "merged", "checks_failed", "needs_human"]:
             count = session.query(func.count(Job.id)).filter(Job.state == state).scalar()
             state_breakdown[state] = count
         

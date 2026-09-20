@@ -10,10 +10,23 @@ from models import Job
 from devin_client import DevinClient
 from github_client import GitHubClient
 from slack_reporter import SlackReporter
+from github_reporter import GitHubReporter
 
 devin_client = DevinClient()
 github_client = GitHubClient()
 slack_reporter = SlackReporter()
+github_reporter = GitHubReporter()
+
+
+def _report(job, previous_state):
+    """Fan out a state transition to Slack + GitHub in one event loop."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(slack_reporter.report_state_transition(job, previous_state))
+        loop.run_until_complete(github_reporter.report_state_transition(job, previous_state))
+    finally:
+        loop.close()
 
 def worker():
     """Background worker to poll Devin sessions and manage job lifecycle"""
@@ -32,26 +45,23 @@ def process_jobs():
     """Process all active jobs respecting concurrency cap"""
     with next(get_session()) as session:
         result = session.execute(
-            select(Job).where(Job.state.in_(["session_started", "verifying"]))
+            select(Job).where(Job.state.in_(["fixing", "checks_running"]))
         )
         active_jobs = result.scalars().all()
-        
-        if len(active_jobs) >= settings.CONCURRENCY_CAP:
-            print(f"Concurrency cap reached: {len(active_jobs)} active jobs")
-            return
-        
-        result = session.execute(
-            select(Job).where(Job.state == "queued")
-        )
-        queued_jobs = result.scalars().all()
-        
-        for job in queued_jobs:
-            if len(active_jobs) >= settings.CONCURRENCY_CAP:
-                break
-            
-            process_job(job, session)
-            active_jobs.append(job)
-        
+
+        # Concurrency cap gates STARTING new jobs only — it must never block
+        # polling of already-active jobs (that would freeze the lifecycle).
+        if len(active_jobs) < settings.CONCURRENCY_CAP:
+            queued_jobs = session.execute(
+                select(Job).where(Job.state == "queued")
+            ).scalars().all()
+            for job in queued_jobs:
+                if len(active_jobs) >= settings.CONCURRENCY_CAP:
+                    break
+                process_job(job, session)
+                active_jobs.append(job)
+
+        # Always poll every active job, regardless of the cap.
         for job in active_jobs:
             poll_session(job, session)
 
@@ -63,16 +73,12 @@ def process_job(job: Job, session: Session):
     
     print(f"Processing job {job.id}")
     previous_state = job.state
-    job.state = "session_started"
+    job.state = "fixing"
     job.labeled_at = datetime.now(timezone.utc)
     job.updated_at = datetime.now(timezone.utc)
     session.commit()
     
-    # Report to Slack
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(slack_reporter.report_state_transition(job, previous_state))
-    loop.close()
+    _report(job, previous_state)
 
 def poll_session(job: Job, session: Session):
     """Poll Devin session status and update job state"""
@@ -83,47 +89,50 @@ def poll_session(job: Job, session: Session):
         loop.close()
         
         previous_state = job.state
-        
-        if session_data.get("status") == "completed":
-            pr_urls = session_data.get("pull_requests", [])
-            if pr_urls:
-                pr_url = pr_urls[0].get("url", "")
-                # Extract PR number from URL (format: https://github.com/owner/repo/pull/123)
-                if pr_url and "/pull/" in pr_url:
-                    pr_number = pr_url.split("/pull/")[-1]
-                    job.pr_number = int(pr_number)
-                job.state = "verifying"
-                job.notes = f"PR created: {pr_url}"
-            else:
-                job.state = "completed"
-                session_url = session_data.get("url")
-                if session_url:
-                    job.notes = f"Session completed: {session_url}"
-            
+
+        # Devin's status vocabulary varies by API version (status vs status_enum;
+        # terminal value may be "finished"/"stopped", not "completed"). Drive off
+        # PR presence first — that's version-agnostic — then fall back to status.
+        status = (session_data.get("status") or session_data.get("status_enum") or "").lower()
+        prs = session_data.get("pull_requests")
+        if not prs and session_data.get("pull_request"):
+            prs = [session_data["pull_request"]]
+        prs = prs or []
+
+        TERMINAL_DONE = {"completed", "finished", "stopped", "expired", "suspended", "blocked"}
+        TERMINAL_FAIL = {"failed", "error", "crashed"}
+
+        new_state = job.state
+        note = job.notes
+        if prs:
+            # Devin returns {'pr_url': ..., 'pr_state': ...}; older shape uses 'url'
+            pr_url = prs[0].get("pr_url") or prs[0].get("url", "")
+            if pr_url and "/pull/" in pr_url:
+                job.pr_number = int(pr_url.split("/pull/")[-1].split("/")[0])
+            new_state = "checks_running"
+            note = f"PR created: {pr_url}"
+        elif status in TERMINAL_FAIL:
+            new_state = "checks_failed"
+            note = f"Session failed: {session_data.get('error', 'Unknown error')}"
+        elif status in TERMINAL_DONE:
+            # session ended without a PR — needs a human to look
+            new_state = "needs_human"
+            note = f"Session ended ({status}) with no PR: {session_data.get('url')}"
+        # else: still running/working — keep polling, no change
+
+        # capture cost regardless (Devin reports acus_consumed)
+        cost = session_data.get("cost", session_data.get("acus_consumed"))
+        if cost is not None:
+            job.cost = cost
+
+        if new_state != previous_state:
+            job.state = new_state
+            job.notes = note
             job.updated_at = datetime.now(timezone.utc)
             session.commit()
-            
-            # Report to Slack
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(slack_reporter.report_state_transition(job, previous_state))
-            loop.close()
-        
-        elif session_data.get("status") == "failed":
-            job.state = "failed"
-            job.updated_at = datetime.now(timezone.utc)
-            job.notes = f"Session failed: {session_data.get('error', 'Unknown error')}"
-            session.commit()
-            
-            # Report to Slack
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(slack_reporter.report_state_transition(job, previous_state))
-            loop.close()
-        
-        if "cost" in session_data:
-            job.cost = session_data["cost"]
-            session.commit()
+            _report(job, previous_state)
+        else:
+            session.commit()  # persist cost update
             
     except Exception as e:
         print(f"Error polling session {job.devin_session_id}: {e}")
@@ -132,12 +141,7 @@ def poll_session(job: Job, session: Session):
         job.notes = f"Polling error: {str(e)}"
         job.updated_at = datetime.now(timezone.utc)
         session.commit()
-        
-        # Report to Slack
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(slack_reporter.report_state_transition(job, previous_state))
-        loop.close()
+        _report(job, previous_state)
 
 if __name__ == "__main__":
     worker()

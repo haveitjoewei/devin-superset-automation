@@ -1,258 +1,95 @@
-# Devin Superset Automation
+# Devin Auto-Fix — Autonomous Dependency Remediation
 
-A comprehensive demonstration of Devin's multi-channel automation capabilities for the Apache Superset project, showcasing event-driven workflows using the Devin API.
+Event-driven automation that uses the [Devin API](https://docs.devin.ai/api-reference/overview)
+to do the engineering work dependency bots leave undone: when a dependency upgrade
+breaks the build, Devin investigates, fixes the code and tests, and opens a
+validated PR — triggered by a GitHub event, tracked to a merge, and reported to
+Slack and a Superset dashboard.
 
-## Overview
+Target repository: [apache/superset](https://github.com/apache/superset) (via a fork).
 
-This repository contains multiple automation implementations that demonstrate how Devin can be integrated into different enterprise issue intake channels:
+## The problem
 
-- **Slack Bot Integration** - Chat-based workflow for real-time issue reporting
-- **GitHub Webhook Handler** - Programmatic GitHub issue handling via Devin API
-- **Dependency Remediation Orchestrator** - Automated dependency upgrade remediation for security updates
+Scanners find vulnerable deps and Dependabot proposes upgrades — but both stop
+when the upgrade **breaks the app**. Someone still has to investigate, fix call
+sites, unbreak tests, and validate. That last mile is unbounded toil.
 
-## Architecture
+Measured on apache/superset (last 12 months):
+
+- **2,658** Dependabot PRs; **~17%** need human code work (not a clean bump)
+- → **~450 upgrades/year** that fall out of the "merge in 6h" fast lane
+- ≈ **1,350 developer-hours/year** (~$73k–122k) sitting in a dead lane
+- CVE exposure (advisory → fix landed): median **34 days**, tail into years
+
+Devin turns that dead lane back into the fast lane.
+
+## How it works
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    Issue Intake Channels                         │
-├──────────────┬──────────────┬──────────────┬────────────────┤
-│  Slack       │  GitHub      │  Linear      │  Dependency   │
-│  Integration │  Integration │  Integration │  Remediation   │
-└──────┬───────┴──────┬───────┴──────┬───────┴────────┴──────────┘
-      │              │              │              │
-      │              │              │              │
-      └──────────────┴──────────────┴──────────────┘
-                           │
-                    ┌──────▼──────┐
-                    │  Devin API  │
-                    └──────┬──────┘
-                           │
-              ┌────────────┼────────────┐
-              │            │            │
-         ┌────▼────┐ ┌────▼────┐ ┌────▼────┐
-         │  Slack   │ │  GitHub  │ │ Linear   │
-         │  Reply  │ │  PR/Comment│ │  Status  │
-         └─────────┘ └─────────┘ └─────────┘
+Issue labeled `devin-remediate`
+  → api creates a Devin session
+  → Devin fixes code + tests, opens a PR
+  → worker tracks it: checks_running → checks_passed → merged
+  → Slack thread + GitHub comments + Superset dashboard
 ```
 
-## Components
+Full detail and the state machine: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-### 1. Slack Bot Integration
+### Lifecycle states
+`queued → fixing → checks_running → checks_passed → merged`
+(plus `checks_failed`, `needs_human`). `checks_passed` means checks are green and
+it's **ready for human review — never auto-merged**.
 
-**Location:** `slack-bot-integration/`
-
-**Purpose:** Real-time engineer workflow automation via Slack commands and message triggers.
-
-**Features:**
-- Slash commands (`/devin fix`, `/devin implement`, `/devin analyze`, `/devin test`)
-- Message triggers (mentions of "devin")
-- Session management via Devin API
-- Interactive buttons (Open Session, Check Status)
-- Structured output for consistent responses
-
-**Setup:** See `slack-bot-integration/SETUP_GUIDE.md`
-
-### 2. GitHub Webhook Handler
-
-**Location:** `github-webhook-handler/`
-
-**Purpose:** Programmatic GitHub issue handling using the Devin API.
-
-**Features:**
-- GitHub webhook signature verification
-- Automatic Devin session creation for new issues
-- GitHub issue comments with session links
-- Structured output for analysis results
-- Customizable prompt templates
-
-**Setup:** See `github-webhook-handler/README.md`
-
-### 3. Dependency Remediation Orchestrator
-
-**Location:** `dependency-remediation-orchestrator/`
-
-**Purpose:** Automated dependency upgrade remediation for security and version compatibility.
-
-**Features:**
-- Pattern detection for dependency issues (apispec, marshmallow-sqlalchemy, google-auth)
-- Custom Devin prompts for specific dependency problems
-- Business logic for different remediation strategies
-- Integration with Superset's documented dependency blockers
-
-**Setup:** See `dependency-remediation-orchestrator/README.md`
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 18+
-- Devin API key and organization ID
-- GitHub personal access token
-- Slack app (for Slack integration only)
-
-### Installation
-
-Each component has its own `package.json` and dependencies:
-
-```bash
-# Slack Bot
-cd slack-bot-integration
-npm install
-npm start
-
-# GitHub Webhook Handler
-cd github-webhook-handler
-npm install
-npm start
-
-# Dependency Orchestrator
-cd dependency-remediation-orchestrator
-npm install
-npm start
-```
-
-### Configuration
-
-Each component requires a `.env` file with the appropriate credentials:
-
-```env
-# Devin API Configuration
-DEVIN_API_KEY=your-devin-api-key
-DEVIN_ORG_ID=your-org-id
-
-# GitHub Configuration
-GITHUB_WEBHOOK_SECRET=your-webhook-secret
-GITHUB_TOKEN=ghp-your-github-token
-
-# Slack Configuration (Slack Bot only)
-SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_SIGNING_SECRET=your-signing-secret
-SLACK_APP_TOKEN=xapp-your-app-token
-SLACK_APP_ID=your-app-id
-
-# Server Configuration
-PORT=3000
-```
-
-## Usage Examples
-
-### Slack Bot
-
-```bash
-cd slack-bot-integration
-npm start
-
-# In Slack:
-/devin fix issue #44433
-```
-
-### GitHub Webhook Handler
-
-```bash
-cd github-webhook-handler
-npm start
-
-# Configure GitHub webhook to:
-# http://your-server:3000/webhook/github
-```
-
-### Dependency Orchestrator
+## Quickstart
 
 ```bash
 cd dependency-remediation-orchestrator
-npm start
-
-# Create GitHub issue mentioning "apispec" to trigger
+cp .env.example .env          # fill in Devin, GitHub, Slack creds
+docker compose up             # api + worker
 ```
 
-## API Usage
+Postgres and Superset run alongside (see the orchestrator README). Then trigger
+a run:
 
-All components use the Devin API v3 for programmatic session management:
-
-```javascript
-// Create session
-POST /organizations/{org_id}/sessions
-{
-  "prompt": "...",
-  "session_links": ["..."],
-  "structured_output_required": true,
-  "structured_output_schema": {...}
-}
-
-// Get session status
-GET /organizations/{org_id}/sessions/{session_id}
+```bash
+# fire the pipeline for a labeled issue (replays the GitHub event locally)
+python scripts/simulate_issue.py <issue_number>
+# after Devin opens the PR, simulate CI success -> checks_passed (disclaimed)
+python scripts/simulate_ci.py
+# after a human merges -> merged
+python scripts/simulate_merge.py <pr_number>
 ```
 
-## Business Value
+## Observability
 
-### Why This Matters
+- **Slack** (operational): one thread per job, threaded updates, on-call @mention
+  when checks pass.
+- **Superset** (leadership): "Devin Auto-Fix — Effectiveness" dashboard — success
+  rate, throughput, dev-hours saved, net $ saved, MTTR, tasks by state. Reads the
+  `vw_job_metrics` Postgres view. The dashboard *replaces the estimated ROI inputs
+  with live measured numbers*.
+- **`GET /metrics`** — the same numbers as JSON.
 
-Superset faces real-world upgrade blockers documented in `requirements/base.in`:
+## A note on the demo's CI step
 
-- **apispec** - Pinned to `<6.0.0,<6.7.0` due to breaking unit test
-- **marshmallow-sqlalchemy** - Pinned due to memory regression
-- **google-auth** - Pinned due to install-path consistency
+The demo drives the `check_suite` success event locally (`scripts/simulate_ci.py`)
+because Apache Superset's PR CI is heavy/slow and fork PRs need maintainer approval
+before CI runs. This is **clearly disclaimed in every validated PR comment**, and
+production uses the real GitHub `check_suite` webhook. `checks_passed` is evidence,
+not proof — merges stay human-gated.
 
-These blockers prevent security updates and feature improvements, costing engineering time and technical debt.
+## Extensibility
 
-### Impact Model
+The trigger is pluggable. The same engine runs off any event that means "a fix is
+needed" — a Dependabot PR that fails CI, a scanner finding, or a ticket in
+Linear/Jira. Only the webhook adapter changes; the Devin session logic is the same.
 
-Based on the codebase analysis:
-- **2,059** dependency-bump PRs merged (last 12 months)
-- **128** security-labeled PRs/commits
-- **343** direct dependencies
-- **6** upgrades explicitly deferred as "needs eng attention"
+## Repo layout
 
-**Estimated annual cost:** $67k for engineering time spent on dependency upgrade toil
-
-### Devin Advantage
-
-- **Scanners find, bots bump — neither fixes.** Devin edits code, runs tests, iterates until green
-- **Throughput scales with sessions, not headcount.**
-- **Async + unattended.** Event fires, PR waiting at standup.
-- **One workflow, many problems.** Different upgrade problems delegated to autonomous agent.
-
-## For Presentations
-
-### Demonstration Flow
-
-1. **Slack Integration** - Show chat-based workflow
-2. **GitHub Integration** - Show repo-based workflow  
-3. **Dependency Remediation** - Show security workflow with business impact
-
-### Key Talking Points
-
-- **Multi-channel capability**: Devin integrates with Slack, GitHub, Linear, and monitoring systems
-- **API flexibility**: Programmatic control vs. native automations
-- **Real-world impact**: Addresses actual Superset dependency blockers
-- **Scalability**: Event-driven architecture handles high-volume automation
-- **Business value**: $67k/year savings on upgrade toil
-
-## Requirements
-
-- **Devin API key** with `ManageOrgSessions` permission
-- **GitHub personal access token** with `repo` scope
-- **Slack app** (for Slack integration only)
-- **Node.js 18+** for running servers
-- **ngrok** (optional, for exposing localhost to internet)
-
-## Security Considerations
-
-- **Webhook Secrets**: Always use webhook signature verification
-- **API Key Management**: Never commit keys to repository
-- **Environment Variables**: Use `.env` files (gitignored)
-- **RBAC**: Use principle of least privilege for service users
-- **Audit Logging**: Monitor automation execution for security events
-
-## License
-
-MIT
-
-## Related Repositories
-
-- **Apache Superset**: https://github.com/apache/superset
-- **Superset Fork**: https://github.com/haveitjoewei/superset
-
-## Contact
-
-For questions about this automation demonstration, please refer to the individual component README files.
+```
+dependency-remediation-orchestrator/   the app (api, worker, reporters, clients)
+  scripts/                             setup + demo/simulate helpers
+docs/ARCHITECTURE.md                   how it works, state machine, decisions
+docs/DEMO_CI_SCENARIOS.md              bounded-repair demo walkthrough
+tests/                                 CI-failure scenario tests
+```

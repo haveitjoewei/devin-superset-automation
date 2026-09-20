@@ -1,3 +1,6 @@
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """
 Superset Dashboard Setup Script
 
@@ -74,7 +77,7 @@ def setup_instructions():
     print("   f. Save")
     
     print("\n4. CREATE DASHBOARD:")
-    print("   Dashboard Name: 'Devin Remediation — Effectiveness'")
+    print("   Dashboard Name: 'Devin Auto-Fix — Effectiveness'")
     print("   Charts to create:")
     print("   - Big Number: Success Rate")
     print("   - Big Number: Throughput (this week)")

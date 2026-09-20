@@ -10,16 +10,17 @@ from datetime import datetime, timezone
 from config import settings
 from models import Job
 from database import get_session, init_db
-from models import Job
 from devin_client import DevinClient
 from github_client import GitHubClient
 from slack_reporter import SlackReporter
+from github_reporter import GitHubReporter
 from metrics import get_job_metrics
 
 app = FastAPI()
 devin_client = DevinClient()
 github_client = GitHubClient()
 slack_reporter = SlackReporter()
+github_reporter = GitHubReporter()
 
 @app.on_event("startup")
 async def startup_event():
@@ -99,7 +100,9 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         await handle_issue_event(event_data, background_tasks)
     elif event_type == "check_suite":
         await handle_check_suite_event(event_data, background_tasks)
-    
+    elif event_type == "pull_request":
+        await handle_pull_request_event(event_data, background_tasks)
+
     return JSONResponse({"status": "ok"})
 
 async def handle_issue_event(event_data: dict, background_tasks: BackgroundTasks):
@@ -150,14 +153,14 @@ async def create_remediation_job(issue: dict, repository: dict):
         )
         
         job.devin_session_id = session_response.get("session_id")
-        job.state = "session_started"
+        job.state = "fixing"
         job.updated_at = datetime.now(timezone.utc)
         session.commit()
-        
+
         # Report to Slack
         await slack_reporter.report_state_transition(job, None)
-        
-        comment = f"🤖 **Dependency Remediation Started**\n\nDevin session created: {session_response.get('url')}\nSession ID: {session_response.get('session_id')}"
+
+        comment = f"🤖 **Devin auto-fix started**\n\nDevin is working on this dependency upgrade. Session: {session_response.get('url')}"
         await github_client.comment_on_issue(
             repository["owner"]["login"],
             repository["name"],
@@ -170,7 +173,7 @@ async def handle_ci_failure(check_suite: dict, repository: dict):
     with next(get_session()) as session:
         result = session.execute(
             select(Job).where(
-                Job.state == "verifying",
+                Job.state == "checks_running",
                 Job.attempts < 1
             ).order_by(Job.created_at.desc())
         )
@@ -189,30 +192,51 @@ async def handle_ci_failure(check_suite: dict, repository: dict):
                 
                 # Report to Slack if CI fails after repair attempt
                 if job.attempts >= 1:
-                    job.state = "failed"
+                    job.state = "checks_failed"
                     job.notes = f"CI failed after repair attempt: {check_suite.get('details_url')}"
                     session.commit()
-                    await slack_reporter.report_state_transition(job, "verifying")
+                    await slack_reporter.report_state_transition(job, "checks_running")
+                    await github_reporter.report_state_transition(job, "checks_running")
 
 async def handle_ci_success(check_suite: dict, repository: dict):
     """Handle CI success - mark job as validated"""
     with next(get_session()) as session:
         result = session.execute(
-            select(Job).where(Job.state == "verifying").order_by(Job.created_at.desc())
+            select(Job).where(Job.state == "checks_running").order_by(Job.created_at.desc())
         )
         jobs = result.scalars().all()
-        
+
         if jobs:
             job = jobs[0]
             previous_state = job.state
-            job.state = "validated"
+            job.state = "checks_passed"
             job.validated_at = datetime.now(timezone.utc)
             job.effort_hours = 2.0  # Estimate: 2 hours saved per validated job
             job.updated_at = datetime.now(timezone.utc)
             session.commit()
-            
-            # Report to Slack
+
+            # Report to Slack + GitHub (validated, with simulated-CI disclaimer)
             await slack_reporter.report_state_transition(job, previous_state)
+            await github_reporter.report_state_transition(job, previous_state)
+
+async def handle_pull_request_event(event_data: dict, background_tasks: BackgroundTasks):
+    """Handle PR merged — the true terminal success (human-gated, we never auto-merge)."""
+    if event_data.get("action") == "closed" and event_data.get("pull_request", {}).get("merged"):
+        background_tasks.add_task(handle_pr_merged, event_data["pull_request"])
+
+async def handle_pr_merged(pr: dict):
+    """Mark the job merged once a human merges its PR."""
+    with next(get_session()) as session:
+        job = session.execute(
+            select(Job).where(Job.pr_number == pr["number"])
+        ).scalar_one_or_none()
+        if job and job.state != "merged":
+            previous_state = job.state
+            job.state = "merged"
+            job.updated_at = datetime.now(timezone.utc)
+            session.commit()
+            await slack_reporter.report_state_transition(job, previous_state)
+            await github_reporter.report_state_transition(job, previous_state)
 
 def build_remediation_prompt(issue: dict, repository: dict) -> str:
     """Build prompt for Devin based on issue content"""

@@ -1,3 +1,6 @@
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from database import SessionLocal, init_db
 from models import Job
 from datetime import datetime, timedelta, timezone
@@ -21,7 +24,7 @@ def seed_demo_data():
                 "issue_url": "https://github.com/haveitjoewei/superset/issues/100",
                 "devin_session_id": "demo-session-001",
                 "pr_number": 101,
-                "state": "validated",
+                "state": "checks_passed",
                 "attempts": 1,
                 "cost": 2.50,
                 "effort_hours": 4.0,
@@ -35,7 +38,7 @@ def seed_demo_data():
                 "issue_url": "https://github.com/haveitjoewei/superset/issues/102",
                 "devin_session_id": "demo-session-002",
                 "pr_number": 103,
-                "state": "validated",
+                "state": "checks_passed",
                 "attempts": 1,
                 "cost": 3.20,
                 "effort_hours": 6.0,
@@ -49,7 +52,7 @@ def seed_demo_data():
                 "issue_url": "https://github.com/haveitjoewei/superset/issues/104",
                 "devin_session_id": "demo-session-003",
                 "pr_number": 105,
-                "state": "validated",
+                "state": "checks_passed",
                 "attempts": 0,
                 "cost": 1.80,
                 "effort_hours": 3.0,
@@ -63,7 +66,7 @@ def seed_demo_data():
                 "issue_url": "https://github.com/haveitjoewei/superset/issues/106",
                 "devin_session_id": "demo-session-004",
                 "pr_number": 107,
-                "state": "failed",
+                "state": "checks_failed",
                 "attempts": 1,
                 "cost": 2.10,
                 "effort_hours": 0.0,
@@ -77,7 +80,7 @@ def seed_demo_data():
                 "issue_url": "https://github.com/haveitjoewei/superset/issues/108",
                 "devin_session_id": "demo-session-005",
                 "pr_number": None,
-                "state": "verifying",
+                "state": "checks_running",
                 "attempts": 0,
                 "cost": 1.50,
                 "effort_hours": 0.0,
@@ -91,7 +94,7 @@ def seed_demo_data():
                 "issue_url": "https://github.com/haveitjoewei/superset/issues/110",
                 "devin_session_id": "demo-session-006",
                 "pr_number": None,
-                "state": "session_started",
+                "state": "fixing",
                 "attempts": 0,
                 "cost": 0.50,
                 "effort_hours": 0.0,

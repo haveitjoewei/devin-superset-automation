@@ -28,3 +28,14 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+.probevenv/
+
+# Local DB / data artifacts
+*.db
+*.csv

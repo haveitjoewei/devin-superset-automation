@@ -1,146 +1,69 @@
-# Dependency Remediation Orchestrator
+# Dependency Auto-Fix Orchestrator
 
-Production-grade orchestrator for autonomous dependency remediation using Devin API.
+The app behind [Devin Auto-Fix](../README.md): a FastAPI webhook API + a polling
+worker that create and manage Devin sessions, tracking each dependency fix from a
+labeled issue to a merged PR. See [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md)
+for the design.
 
-## Architecture
-
-**Stack:**
-- Python FastAPI (webhook API)
-- Background worker (polling loop)
-- SQLite (job state)
-- Docker Compose (api + worker services)
-
-**Event Handlers (GitHub webhooks) — return fast, never block on Devin:**
-- `issues.labeled` — when label == devin-remediate: create a job + kick off a Devin session
-- `pull_request` (opened) — match PR back to a job (branch/issue ref), begin verification
-- `check_suite.completed` — if conclusion == failure AND tied to a Devin PR: send one bounded follow-up message to that session with the failing check logs; else if success, mark job validated
-
-**Job Lifecycle (SQLite jobs table):**
-- `id, issue_number, devin_session_id, pr_number, state, attempts, created_at, updated_at, cost, notes`
-- States: `queued → session_started → pr_opened → verifying → validated | failed | needs_human`
-
-**Devin API Usage:**
-- Create session: `POST https://api.devin.ai/v3/organizations/{org_id}/sessions`
-- Poll status: `GET https://api.devin.ai/v3/organizations/{org_id}/sessions/{id}`
-- Follow-up (CI repair): `POST https://api.devin.ai/v3/organizations/{org_id}/sessions/{id}/messages`
-- Concurrency cap = 2 active sessions (worker respects it)
+## Stack
+- **FastAPI** (`api.py`) — GitHub webhook receiver
+- **Worker** (`worker.py`) — polls Devin sessions, advances job state
+- **Postgres** — job store + Superset data source (`vw_job_metrics` view)
+- **SlackReporter / GitHubReporter** — lifecycle status out
+- **Superset** — leadership dashboard
 
 ## Setup
 
-### 1. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Configure Environment Variables
-
+### 1. Environment
 ```bash
 cp .env.example .env
 ```
-
-Edit `.env` with your credentials:
-
 ```env
-# Devin API Key
-DEVIN_API_KEY=your-devin-api-key
-DEVIN_ORG_ID=your-org-id
-
-# GitHub Token
-GITHUB_TOKEN=ghp-your-github-token
-GITHUB_WEBHOOK_SECRET=your-webhook-secret
-
-# Worker Configuration
-WORKER_POLL_INTERVAL=30
-CONCURRENCY_CAP=2
+DEVIN_API_KEY=...           DEVIN_ORG_ID=...
+GITHUB_TOKEN=...            GITHUB_WEBHOOK_SECRET=...
+SLACK_BOT_TOKEN=xoxb-...    SLACK_CHANNEL_ID=...   ONCALL_SLACK_USER_ID=...
+DATABASE_URL=postgresql://<user>@localhost:5432/devin_jobs
+WORKER_POLL_INTERVAL=30     CONCURRENCY_CAP=2
 ```
 
-### 3. Run Locally
-
-**API Server:**
+### 2. Run
 ```bash
+docker compose up            # api + worker
+# or locally:
 python -m uvicorn api:app --host 0.0.0.0 --port 8000
-```
-
-**Worker:**
-```bash
 python worker.py
 ```
 
-### 4. Run with Docker Compose
-
+### 3. Dashboard (Superset)
 ```bash
-docker-compose up
+python scripts/setup_superset.py     # prints connection + dataset setup steps
 ```
+Point a Superset database connection at Postgres via `host.docker.internal`
+(Superset runs in Docker; the job DB is on the host), add a dataset on
+`vw_job_metrics`, and build the "Devin Auto-Fix — Effectiveness" dashboard.
 
-## Usage
-
-### Triggering Remediation
-
-1. **Label a GitHub issue** with `devin-remediate`
-2. **Orchestrator creates a job** and starts a Devin session
-3. **Worker polls session status** and updates job state
-4. **When Devin creates a PR**, orchestrator matches it to the job
-5. **When CI runs**, orchestrator monitors check results
-6. **If CI fails**, orchestrator sends one bounded repair attempt to Devin
-7. **When CI passes**, job is marked as validated
-
-### Monitoring
-
-**Check job status:**
+## Trigger a run
 ```bash
-curl http://localhost:8000/jobs
+python scripts/simulate_issue.py <issue_number>   # replay a labeled-issue event
+python scripts/simulate_ci.py                      # simulate check_suite success
+python scripts/simulate_merge.py <pr_number>       # simulate PR merged
 ```
+In production these come from real GitHub webhooks (`issues`, `check_suite`,
+`pull_request`). The simulate scripts exist because Superset's fork-PR CI needs
+maintainer approval — see the disclaimer in [../README.md](../README.md).
 
-**Health check:**
-```bash
-curl http://localhost:8000/health
-```
+## Scripts
+| Script | Purpose |
+|---|---|
+| `scripts/seed_demo_data.py` | seed demo jobs so the dashboard renders |
+| `scripts/migrate_to_postgres.py` | migrate an old SQLite job store to Postgres |
+| `scripts/setup_superset.py` | print Superset connection/dataset setup steps |
+| `scripts/export_metrics_csv.py` | export metrics to CSV |
+| `scripts/simulate_*.py` | replay GitHub events against the local API |
+| `scripts/trigger-demo-ci.sh` | trigger the bounded-repair demo scenarios |
 
-## Business Value
-
-### Why This Matters
-
-Superset faces real-world upgrade blockers that prevent security updates:
-
-- **2,059** dependency-bump PRs merged (last 12 months)
-- **128** security-labeled PRs/commits
-- **6** upgrades explicitly deferred as "needs eng attention"
-
-**Estimated annual cost:** $67k for engineering time spent on dependency upgrade toil
-
-### Devin Advantage
-
-- **Scanners find, bots bump — neither fixes.** Devin edits code, runs tests, iterates until green
-- **Throughput scales with sessions, not headcount.**
-- **Async + unattended.** Event fires, PR waiting at standup.
-- **One workflow, many problems.** Different upgrade problems delegated to autonomous agent.
-
-## API Endpoints
-
-### POST /webhook/github
-**GitHub webhook handler**
-
-**Events handled:**
-- `issues.labeled` — Triggers remediation when `devin-remediate` label added
-- `pull_request.opened` — Matches PR to job for verification
-- `check_suite.completed` — Handles CI failure with bounded repair attempt
-
-### GET /health
-**Health check endpoint**
-
-### GET /jobs
-**List all jobs**
-
-Returns job state and metadata.
-
-## Security
-
-- **Webhook signature verification** using GitHub secrets
-- **Bounded repair attempts** (max 1 per job)
-- **Concurrency cap** prevents resource exhaustion
-- **Job state tracking** for audit and monitoring
-
-## License
-
-MIT
+## Endpoints
+- `POST /webhook/github` — issues / check_suite / pull_request events
+- `GET /metrics` — live metrics JSON
+- `GET /jobs` — job list
+- `GET /health`

@@ -1,28 +1,41 @@
-version: '3.8'
-
 services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: devin
+      POSTGRES_PASSWORD: devin
+      POSTGRES_DB: devin_jobs
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devin -d devin_jobs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   api:
     build: .
     command: uvicorn api:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
+    env_file: .env
     environment:
-      - DEVIN_API_KEY=${DEVIN_API_KEY}
-      - DEVIN_ORG_ID=${DEVIN_ORG_ID}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
-    volumes:
-      - ./jobs.db:/app/jobs.db
+      - DATABASE_URL=postgresql://devin:devin@postgres:5432/devin_jobs
     depends_on:
-      - worker
+      postgres:
+        condition: service_healthy
 
   worker:
     build: .
     command: python worker.py
+    env_file: .env
     environment:
-      - DEVIN_API_KEY=${DEVIN_API_KEY}
-      - DEVIN_ORG_ID=${DEVIN_ORG_ID}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
-    volumes:
-      - ./jobs.db:/app/jobs.db
+      - DATABASE_URL=postgresql://devin:devin@postgres:5432/devin_jobs
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
