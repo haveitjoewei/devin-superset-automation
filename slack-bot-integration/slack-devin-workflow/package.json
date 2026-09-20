@@ -1,0 +1,19 @@
+{
+  "name": "slack-devin-workflow",
+  "version": "1.0.0",
+  "description": "Slack to Devin automation workflow",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "@slack/bolt": "^3.14.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
