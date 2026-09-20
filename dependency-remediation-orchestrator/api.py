@@ -7,11 +7,11 @@ import hashlib
 import json
 from datetime import datetime
 
-from .config import settings
-from .database import get_session, init_db
-from .models import Job
-from .devin_client import DevinClient
-from .github_client import GitHubClient
+from config import settings
+from database import get_session, init_db
+from models import Job
+from devin_client import DevinClient
+from github_client import GitHubClient
 
 app = FastAPI()
 devin_client = DevinClient()
@@ -48,8 +48,6 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
     
     if event_type == "issues":
         await handle_issue_event(event_data, background_tasks)
-    elif event_type == "pull_request":
-        await handle_pr_event(event_data, background_tasks)
     elif event_type == "check_suite":
         await handle_check_suite_event(event_data, background_tasks)
     
@@ -64,15 +62,6 @@ async def handle_issue_event(event_data: dict, background_tasks: BackgroundTasks
     if action == "labeled" and "devin-remediate" in [l["name"] for l in issue.get("labels", [])]:
         background_tasks.add_task(create_remediation_job, issue, repository)
 
-async def handle_pr_event(event_data: dict, background_tasks: BackgroundTasks):
-    """Handle pull request events"""
-    action = event_data.get("action")
-    pr = event_data.get("pull_request")
-    repository = event_data.get("repository")
-    
-    if action == "opened":
-        background_tasks.add_task(match_pr_to_job, pr, repository)
-
 async def handle_check_suite_event(event_data: dict, background_tasks: BackgroundTasks):
     """Handle check suite completion events"""
     check_suite = event_data.get("check_suite")
@@ -84,7 +73,6 @@ async def handle_check_suite_event(event_data: dict, background_tasks: Backgroun
 async def create_remediation_job(issue: dict, repository: dict):
     """Create a new remediation job and start Devin session"""
     with next(get_session()) as session:
-        # Check if job already exists
         result = session.execute(
             select(Job).where(Job.issue_number == issue["number"])
         )
@@ -93,7 +81,6 @@ async def create_remediation_job(issue: dict, repository: dict):
         if existing_job:
             return
         
-        # Create new job
         job = Job(
             issue_number=issue["number"],
             state="queued"
@@ -102,22 +89,18 @@ async def create_remediation_job(issue: dict, repository: dict):
         session.commit()
         session.refresh(job)
         
-        # Build prompt for Devin
         prompt = build_remediation_prompt(issue, repository)
         
-        # Create Devin session
         session_response = await devin_client.create_session(
             prompt=prompt,
             session_links=[issue["html_url"]]
         )
         
-        # Update job with session info
         job.devin_session_id = session_response.get("session_id")
         job.state = "session_started"
         job.updated_at = datetime.utcnow()
         session.commit()
         
-        # Post comment on GitHub
         comment = f"🤖 **Dependency Remediation Started**\n\nDevin session created: {session_response.get('url')}\nSession ID: {session_response.get('session_id')}"
         await github_client.comment_on_issue(
             repository["owner"]["login"],
@@ -126,26 +109,9 @@ async def create_remediation_job(issue: dict, repository: dict):
             comment
         )
 
-async def match_pr_to_job(pr: dict, repository: dict):
-    """Match a PR to its remediation job"""
-    with next(get_session()) as session:
-        # Try to match by issue number (assuming PR is related to issue)
-        result = session.execute(
-            select(Job).where(Job.state == "session_started")
-        )
-        jobs = result.scalars().all()
-        
-        for job in jobs:
-            job.pr_number = pr["number"]
-            job.state = "verifying"
-            job.updated_at = datetime.utcnow()
-            session.commit()
-            break
-
 async def handle_ci_failure(check_suite: dict, repository: dict):
     """Handle CI failure with bounded repair attempt"""
     with next(get_session()) as session:
-        # Find job associated with this PR
         result = session.execute(
             select(Job).where(
                 Job.state == "verifying",
@@ -155,7 +121,6 @@ async def handle_ci_failure(check_suite: dict, repository: dict):
         job = result.scalar_one_or_none()
         
         if job and job.devin_session_id:
-            # Send follow-up message to Devin with failure details
             failure_message = f"CI failed for your changes. Please review and fix the failing tests:\n\n{check_suite.get('details_url')}"
             await devin_client.send_message(job.devin_session_id, failure_message)
             

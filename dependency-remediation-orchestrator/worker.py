@@ -4,11 +4,11 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .config import settings
-from .database import get_session, init_db
-from .models import Job
-from .devin_client import DevinClient
-from .github_client import GitHubClient
+from config import settings
+from database import get_session, init_db
+from models import Job
+from devin_client import DevinClient
+from github_client import GitHubClient
 
 devin_client = DevinClient()
 github_client = GitHubClient()
@@ -29,7 +29,6 @@ def worker():
 def process_jobs():
     """Process all active jobs respecting concurrency cap"""
     with next(get_session()) as session:
-        # Count active sessions
         result = session.execute(
             select(Job).where(Job.state.in_(["session_started", "verifying"]))
         )
@@ -39,7 +38,6 @@ def process_jobs():
             print(f"Concurrency cap reached: {len(active_jobs)} active jobs")
             return
         
-        # Process jobs in queued state
         result = session.execute(
             select(Job).where(Job.state == "queued")
         )
@@ -52,7 +50,6 @@ def process_jobs():
             process_job(job, session)
             active_jobs.append(job)
         
-        # Poll active sessions
         for job in active_jobs:
             poll_session(job, session)
 
@@ -70,22 +67,24 @@ def process_job(job: Job, session: Session):
 def poll_session(job: Job, session: Session):
     """Poll Devin session status and update job state"""
     try:
-        # Run async function in sync context
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         session_data = loop.run_until_complete(devin_client.get_session(job.devin_session_id))
         loop.close()
         
-        # Update job based on session status
         if session_data.get("status") == "completed":
-            job.state = "pr_opened"
+            pr_urls = session_data.get("pull_requests", [])
+            if pr_urls:
+                job.pr_number = pr_urls[0].get("number") if pr_urls else None
+                job.state = "verifying"
+                job.notes = f"PR created: {pr_urls[0].get('url')}"
+            else:
+                job.state = "completed"
+                session_url = session_data.get("url")
+                if session_url:
+                    job.notes = f"Session completed: {session_url}"
+            
             job.updated_at = datetime.utcnow()
-            
-            # Try to extract PR URL from session
-            session_url = session_data.get("url")
-            if session_url:
-                job.notes = f"Session completed: {session_url}"
-            
             session.commit()
         
         elif session_data.get("status") == "failed":
@@ -94,7 +93,6 @@ def poll_session(job: Job, session: Session):
             job.notes = f"Session failed: {session_data.get('error', 'Unknown error')}"
             session.commit()
         
-        # Update cost if available
         if "cost" in session_data:
             job.cost = session_data["cost"]
             session.commit()
