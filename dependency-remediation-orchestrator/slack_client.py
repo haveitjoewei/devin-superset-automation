@@ -22,7 +22,7 @@ class SlackClient:
         if thread_ts:
             payload["thread_ts"] = thread_ts
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(url, json=payload, headers=self.headers)
             response.raise_for_status()
             return response.json()

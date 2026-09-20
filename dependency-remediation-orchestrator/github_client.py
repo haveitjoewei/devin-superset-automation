@@ -14,7 +14,7 @@ class GitHubClient:
         """Get GitHub issue details"""
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
@@ -24,7 +24,7 @@ class GitHubClient:
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}/comments"
         payload = {"body": body}
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(url, json=payload, headers=self.headers)
             response.raise_for_status()
             return response.json()
@@ -33,7 +33,7 @@ class GitHubClient:
         """Get pull request details"""
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
@@ -42,7 +42,7 @@ class GitHubClient:
         """Get check runs for a commit"""
         url = f"{self.base_url}/repos/{owner}/{repo}/commits/{commit_sha}/check-runs"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()

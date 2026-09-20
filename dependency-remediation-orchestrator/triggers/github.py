@@ -8,13 +8,25 @@ that normalizes its events into the same job actions — the Devin session logic
 and reporters stay shared. `api.py` only routes; it knows nothing GitHub-specific.
 """
 from datetime import datetime, timezone
-from sqlalchemy import select
+from sqlalchemy import select, func
 
+from config import settings
 from database import get_session
 from models import Job
 from devin_client import DevinClient
 from github_client import GitHubClient
 from reporters import SlackReporter, GitHubReporter
+
+
+def _daily_spend_exceeded(session) -> bool:
+    """True if today's Devin spend has hit the configured cap (0 disables)."""
+    if not settings.DAILY_COST_CAP:
+        return False
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    spent = session.execute(
+        select(func.coalesce(func.sum(Job.cost), 0.0)).where(Job.created_at >= day_start)
+    ).scalar() or 0.0
+    return spent >= settings.DAILY_COST_CAP
 
 devin_client = DevinClient()
 github_client = GitHubClient()
@@ -62,6 +74,14 @@ async def create_remediation_job(issue: dict, repository: dict):
             select(Job).where(Job.issue_number == issue["number"])
         ).scalar_one_or_none()
         if existing:
+            return
+
+        # Cost guard: don't start new Devin work once the daily spend cap is hit.
+        if _daily_spend_exceeded(session):
+            await github_client.comment_on_issue(
+                repository["owner"]["login"], repository["name"], issue["number"],
+                "⏸️ Devin auto-fix paused: daily cost cap reached. Will resume next cycle.",
+            )
             return
 
         job = Job(

@@ -12,7 +12,7 @@ class Job(Base):
     issue_url = Column(String, nullable=True)
     devin_session_id = Column(String, nullable=True, index=True)
     pr_number = Column(Integer, nullable=True, index=True)
-    state = Column(String, default="queued", nullable=False)  # queued, session_started, pr_opened, verifying, validated, failed, needs_human
+    state = Column(String, default="queued", nullable=False)  # queued, fixing, checks_running, checks_passed, merged, checks_failed, needs_human
     attempts = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)

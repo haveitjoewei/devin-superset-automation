@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from datetime import datetime, timezone
 from sqlalchemy import select
@@ -11,10 +12,28 @@ from devin_client import DevinClient
 from github_client import GitHubClient
 from reporters import SlackReporter, GitHubReporter
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("worker")
+
 devin_client = DevinClient()
 github_client = GitHubClient()
 slack_reporter = SlackReporter()
 github_reporter = GitHubReporter()
+
+
+def extract_pr_number(pull_requests: list) -> int | None:
+    """Pull the PR number out of Devin's session response.
+
+    Devin returns pull requests as {'pr_url': ..., 'pr_state': ...}; an older
+    shape used {'url': ...}. Returns None when there's no PR yet.
+    """
+    if not pull_requests:
+        return None
+    pr = pull_requests[0]
+    url = pr.get("pr_url") or pr.get("url", "")
+    if url and "/pull/" in url:
+        return int(url.split("/pull/")[-1].split("/")[0])
+    return None
 
 
 def _report(job, previous_state):
@@ -104,12 +123,11 @@ def poll_session(job: Job, session: Session):
         new_state = job.state
         note = job.notes
         if prs:
-            # Devin returns {'pr_url': ..., 'pr_state': ...}; older shape uses 'url'
-            pr_url = prs[0].get("pr_url") or prs[0].get("url", "")
-            if pr_url and "/pull/" in pr_url:
-                job.pr_number = int(pr_url.split("/pull/")[-1].split("/")[0])
+            pr_number = extract_pr_number(prs)
+            if pr_number:
+                job.pr_number = pr_number
             new_state = "checks_running"
-            note = f"PR created: {pr_url}"
+            note = f"PR created: {prs[0].get('pr_url') or prs[0].get('url', '')}"
         elif status in TERMINAL_FAIL:
             new_state = "checks_failed"
             note = f"Session failed: {session_data.get('error', 'Unknown error')}"
@@ -129,12 +147,13 @@ def poll_session(job: Job, session: Session):
             job.notes = note
             job.updated_at = datetime.now(timezone.utc)
             session.commit()
+            logger.info("job %s: %s -> %s (pr=%s)", job.id, previous_state, new_state, job.pr_number)
             _report(job, previous_state)
         else:
             session.commit()  # persist cost update
-            
+
     except Exception as e:
-        print(f"Error polling session {job.devin_session_id}: {e}")
+        logger.error("job %s: error polling session %s: %s", job.id, job.devin_session_id, e)
         previous_state = job.state
         job.state = "needs_human"
         job.notes = f"Polling error: {str(e)}"

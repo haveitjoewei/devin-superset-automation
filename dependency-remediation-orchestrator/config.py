@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     WORKER_POLL_INTERVAL: int = 30
     CONCURRENCY_CAP: int = 2
+    # Cost guard: max Devin spend (ACUs) to start new work per day. 0 disables.
+    DAILY_COST_CAP: float = 100.0
     
     # Database
     DATABASE_URL: str = "postgresql://josephwei@localhost:5432/devin_jobs"

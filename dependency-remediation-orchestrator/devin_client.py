@@ -32,7 +32,7 @@ class DevinClient:
             }
         }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(url, json=payload, headers=self.headers)
             response.raise_for_status()
             return response.json()
@@ -41,7 +41,7 @@ class DevinClient:
         """Get session status"""
         url = f"{self.base_url}/organizations/{self.org_id}/sessions/{session_id}"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
@@ -51,7 +51,7 @@ class DevinClient:
         url = f"{self.base_url}/organizations/{self.org_id}/sessions/{session_id}/messages"
         payload = {"message": message}
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(url, json=payload, headers=self.headers)
             response.raise_for_status()
             return response.json()

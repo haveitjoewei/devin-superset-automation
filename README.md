@@ -1,5 +1,7 @@
 # Devin Auto-Fix — Autonomous Dependency Remediation
 
+[![CI](https://github.com/haveitjoewei/devin-superset-automation/actions/workflows/ci.yml/badge.svg)](https://github.com/haveitjoewei/devin-superset-automation/actions/workflows/ci.yml)
+
 Event-driven automation that uses the [Devin API](https://docs.devin.ai/api-reference/overview)
 to do the engineering work dependency bots leave undone: when a dependency upgrade
 breaks the build, Devin investigates, fixes the code and tests, and opens a
@@ -70,6 +72,15 @@ python scripts/simulate_merge.py <pr_number>
   with live measured numbers*.
 - **`GET /metrics`** — the same numbers as JSON.
 
+## Screenshots
+
+| Superset dashboard | Slack thread | GitHub PR |
+|---|---|---|
+| ![dashboard](docs/images/dashboard.png) | ![slack](docs/images/slack-thread.png) | ![pr](docs/images/pr.png) |
+
+*(Live examples: the "Devin Auto-Fix — Effectiveness" dashboard, a per-job Slack
+thread with the on-call ping, and a Devin PR with lifecycle comments.)*
+
 ## A note on the demo's CI step
 
 The demo drives the `check_suite` success event locally (`scripts/simulate_ci.py`)
@@ -82,7 +93,24 @@ not proof — merges stay human-gated.
 
 The trigger is pluggable. The same engine runs off any event that means "a fix is
 needed" — a Dependabot PR that fails CI, a scanner finding, or a ticket in
-Linear/Jira. Only the webhook adapter changes; the Devin session logic is the same.
+Linear/Jira. Only the trigger adapter (`triggers/<source>.py`) changes; the Devin
+session logic and reporters are shared.
+
+## Production considerations
+
+This repo is a working demo, scoped deliberately. In a real customer engagement,
+these are where *their* engineering team would invest next — noted here to mark the
+boundary, not because they're required for the demo:
+
+- **Auth on `/jobs` and `/metrics`** (currently open; the webhook is HMAC-verified).
+- **Idempotency** on webhook delivery id (GitHub retries deliveries).
+- **Durable retries / dead-letter** for failed Devin or GitHub calls (today: timeouts + a bounded CI repair).
+- **Secrets** via a manager (Vault/SSM) instead of `.env`.
+- **Rate limits & backoff** against the Devin and GitHub APIs at higher volume.
+- **Scaling the worker** beyond a single polling loop (queue + multiple workers).
+
+What *is* built for cost-safety: a per-day Devin spend cap (`DAILY_COST_CAP`) and a
+concurrency cap on active sessions.
 
 ## Repo layout
 
