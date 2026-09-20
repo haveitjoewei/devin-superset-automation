@@ -36,11 +36,11 @@ def get_job_metrics():
         # Net saved (assuming $90/hour for dev time)
         net_saved = (dev_hours_saved * 90) - devin_cost
         
-        # MTTR (Mean Time To Remediation)
+        # MTTR (Mean Time To Remediation) - PostgreSQL version
         mttr_results = session.query(
             func.avg(
-                func.julianday(Job.validated_at) - func.julianday(Job.labeled_at)
-            ) * 24  # Convert days to hours
+                func.extract('epoch', Job.validated_at - Job.labeled_at) / 3600
+            )
         ).filter(
             Job.state == "validated",
             Job.validated_at.isnot(None),

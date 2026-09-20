@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     CONCURRENCY_CAP: int = 2
     
     # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///./jobs.db"
+    DATABASE_URL: str = "postgresql://josephwei@localhost:5432/devin_jobs"
     
     # Superset Dashboard
     SUPERSET_HOST: str = "http://localhost:8088"

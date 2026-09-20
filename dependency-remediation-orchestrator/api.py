@@ -24,46 +24,12 @@ slack_reporter = SlackReporter()
 @app.on_event("startup")
 async def startup_event():
     init_db()
-    # Run database migrations
-    from sqlalchemy import text
+    # Create metrics view in PostgreSQL
     from database import SessionLocal
+    from sqlalchemy import text
     
     with SessionLocal() as session:
-        # Add new columns if they don't exist
-        try:
-            session.execute(text("ALTER TABLE jobs ADD COLUMN effort_hours FLOAT DEFAULT 0.0"))
-            print("Added effort_hours column")
-        except Exception:
-            pass
-        
-        try:
-            session.execute(text("ALTER TABLE jobs ADD COLUMN validated_at DATETIME"))
-            print("Added validated_at column")
-        except Exception:
-            pass
-        
-        try:
-            session.execute(text("ALTER TABLE jobs ADD COLUMN labeled_at DATETIME"))
-            print("Added labeled_at column")
-        except Exception:
-            pass
-        
-        try:
-            session.execute(text("ALTER TABLE jobs ADD COLUMN issue_url TEXT"))
-            print("Added issue_url column")
-        except Exception:
-            pass
-        
-        try:
-            session.execute(text("ALTER TABLE jobs ADD COLUMN slack_thread_ts TEXT"))
-            print("Added slack_thread_ts column")
-        except Exception:
-            pass
-        
-        session.commit()
-    
-    # Create metrics view
-    with SessionLocal() as session:
+        # Create metrics view
         try:
             session.execute(text("DROP VIEW IF EXISTS vw_job_metrics"))
         except Exception:
@@ -89,7 +55,7 @@ async def startup_event():
             notes,
             CASE 
                 WHEN validated_at IS NOT NULL AND labeled_at IS NOT NULL 
-                THEN (julianday(validated_at) - julianday(labeled_at)) * 24
+                THEN EXTRACT(EPOCH FROM (validated_at - labeled_at)) / 3600
                 ELSE NULL 
             END as mttr_hours,
             CASE 
