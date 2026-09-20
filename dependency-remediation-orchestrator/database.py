@@ -7,7 +7,7 @@ settings = get_settings()
 
 # Use synchronous SQLite for simplicity
 DATABASE_URL = settings.DATABASE_URL.replace("+aiosqlite", "")
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 def init_db():

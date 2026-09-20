@@ -9,7 +9,7 @@ class SlackClient:
         self.oncall_user_id = settings.ONCALL_SLACK_USER_ID
         self.headers = {
             "Authorization": f"Bearer {self.bot_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json; charset=utf-8"
         }
     
     async def post_message(self, text: str, thread_ts: str = None) -> dict:
