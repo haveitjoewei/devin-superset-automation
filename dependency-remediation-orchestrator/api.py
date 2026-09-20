@@ -24,6 +24,78 @@ slack_reporter = SlackReporter()
 @app.on_event("startup")
 async def startup_event():
     init_db()
+    # Run database migrations
+    from sqlalchemy import text
+    from database import SessionLocal
+    
+    with SessionLocal() as session:
+        # Add new columns if they don't exist
+        try:
+            session.execute(text("ALTER TABLE jobs ADD COLUMN effort_hours FLOAT DEFAULT 0.0"))
+            print("Added effort_hours column")
+        except Exception:
+            pass
+        
+        try:
+            session.execute(text("ALTER TABLE jobs ADD COLUMN validated_at DATETIME"))
+            print("Added validated_at column")
+        except Exception:
+            pass
+        
+        try:
+            session.execute(text("ALTER TABLE jobs ADD COLUMN labeled_at DATETIME"))
+            print("Added labeled_at column")
+        except Exception:
+            pass
+        
+        try:
+            session.execute(text("ALTER TABLE jobs ADD COLUMN slack_thread_ts TEXT"))
+            print("Added slack_thread_ts column")
+        except Exception:
+            pass
+        
+        session.commit()
+    
+    # Create metrics view
+    with SessionLocal() as session:
+        try:
+            session.execute(text("DROP VIEW IF EXISTS vw_job_metrics"))
+        except Exception:
+            pass
+        
+        create_view_sql = """
+        CREATE VIEW vw_job_metrics AS
+        SELECT 
+            id,
+            issue_number,
+            devin_session_id,
+            pr_number,
+            state,
+            attempts,
+            created_at,
+            updated_at,
+            cost,
+            effort_hours,
+            validated_at,
+            labeled_at,
+            slack_thread_ts,
+            notes,
+            CASE 
+                WHEN validated_at IS NOT NULL AND labeled_at IS NOT NULL 
+                THEN (julianday(validated_at) - julianday(labeled_at)) * 24
+                ELSE NULL 
+            END as mttr_hours,
+            CASE 
+                WHEN notes LIKE '%test%' THEN 'test'
+                WHEN notes LIKE '%bug%' THEN 'bug'
+                ELSE 'dependency'
+            END as stream
+        FROM jobs
+        """
+        
+        session.execute(text(create_view_sql))
+        session.commit()
+        print("Created vw_job_metrics view")
 
 def verify_github_signature(payload: bytes, signature: str) -> bool:
     """Verify GitHub webhook signature"""
