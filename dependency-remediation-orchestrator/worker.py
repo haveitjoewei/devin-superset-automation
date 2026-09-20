@@ -9,8 +9,7 @@ from database import get_session, init_db
 from models import Job
 from devin_client import DevinClient
 from github_client import GitHubClient
-from slack_reporter import SlackReporter
-from github_reporter import GitHubReporter
+from reporters import SlackReporter, GitHubReporter
 
 devin_client = DevinClient()
 github_client = GitHubClient()

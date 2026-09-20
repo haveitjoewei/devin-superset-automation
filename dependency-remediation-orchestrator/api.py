@@ -5,276 +5,84 @@ from sqlalchemy import select
 import hmac
 import hashlib
 import json
-from datetime import datetime, timezone
 
 from config import settings
 from models import Job
 from database import get_session, init_db
-from devin_client import DevinClient
-from github_client import GitHubClient
-from slack_reporter import SlackReporter
-from github_reporter import GitHubReporter
 from metrics import get_job_metrics
+from triggers import github as github_trigger
 
 app = FastAPI()
-devin_client = DevinClient()
-github_client = GitHubClient()
-slack_reporter = SlackReporter()
-github_reporter = GitHubReporter()
+
 
 @app.on_event("startup")
 async def startup_event():
     init_db()
-    # Create metrics view in PostgreSQL
+    _create_metrics_view()
+
+
+def _create_metrics_view():
+    """(Re)create the vw_job_metrics view the Superset dashboard reads."""
     from database import SessionLocal
     from sqlalchemy import text
-    
+
     with SessionLocal() as session:
-        # Create metrics view
-        try:
-            session.execute(text("DROP VIEW IF EXISTS vw_job_metrics"))
-        except Exception:
-            pass
-        
-        create_view_sql = """
-        CREATE VIEW vw_job_metrics AS
-        SELECT 
-            id,
-            issue_number,
-            issue_url,
-            devin_session_id,
-            pr_number,
-            state,
-            attempts,
-            created_at,
-            updated_at,
-            cost,
-            effort_hours,
-            validated_at,
-            labeled_at,
-            slack_thread_ts,
-            notes,
-            CASE 
-                WHEN validated_at IS NOT NULL AND labeled_at IS NOT NULL 
-                THEN EXTRACT(EPOCH FROM (validated_at - labeled_at)) / 3600
-                ELSE NULL 
-            END as mttr_hours,
-            CASE 
-                WHEN notes LIKE '%test%' THEN 'test'
-                WHEN notes LIKE '%bug%' THEN 'bug'
-                ELSE 'dependency'
-            END as stream
-        FROM jobs
-        """
-        
-        session.execute(text(create_view_sql))
+        session.execute(text("DROP VIEW IF EXISTS vw_job_metrics"))
+        session.execute(text("""
+            CREATE VIEW vw_job_metrics AS
+            SELECT
+                id, issue_number, issue_url, devin_session_id, pr_number, state,
+                attempts, created_at, updated_at, cost, effort_hours, validated_at,
+                labeled_at, slack_thread_ts, notes,
+                CASE
+                    WHEN validated_at IS NOT NULL AND labeled_at IS NOT NULL
+                    THEN EXTRACT(EPOCH FROM (validated_at - labeled_at)) / 3600
+                    ELSE NULL
+                END AS mttr_hours,
+                CASE
+                    WHEN notes LIKE '%test%' THEN 'test'
+                    WHEN notes LIKE '%bug%' THEN 'bug'
+                    ELSE 'dependency'
+                END AS stream
+            FROM jobs
+        """))
         session.commit()
         print("Created vw_job_metrics view")
 
+
 def verify_github_signature(payload: bytes, signature: str) -> bool:
-    """Verify GitHub webhook signature"""
     if not signature:
         return False
-    
-    hmac_obj = hmac.new(
-        settings.GITHUB_WEBHOOK_SECRET.encode(),
-        payload,
-        hashlib.sha256
-    )
-    expected_signature = f"sha256={hmac_obj.hexdigest()}"
-    return hmac.compare_digest(expected_signature, signature)
+    digest = hmac.new(settings.GITHUB_WEBHOOK_SECRET.encode(), payload, hashlib.sha256)
+    return hmac.compare_digest(f"sha256={digest.hexdigest()}", signature)
+
 
 @app.post("/webhook/github")
 async def github_webhook(request: Request, background_tasks: BackgroundTasks):
-    """Handle GitHub webhooks"""
-    signature = request.headers.get("x-hub-signature-256")
+    """Verify the signature, then hand the event to the GitHub trigger adapter."""
     payload = await request.body()
-    
-    if not verify_github_signature(payload, signature):
+    if not verify_github_signature(payload, request.headers.get("x-hub-signature-256")):
         raise HTTPException(status_code=401, detail="Invalid signature")
-    
-    event_data = json.loads(payload)
-    event_type = request.headers.get("x-github-event")
-    
-    if event_type == "issues":
-        await handle_issue_event(event_data, background_tasks)
-    elif event_type == "check_suite":
-        await handle_check_suite_event(event_data, background_tasks)
-    elif event_type == "pull_request":
-        await handle_pull_request_event(event_data, background_tasks)
 
+    event_type = request.headers.get("x-github-event")
+    await github_trigger.route(event_type, json.loads(payload), background_tasks)
     return JSONResponse({"status": "ok"})
 
-async def handle_issue_event(event_data: dict, background_tasks: BackgroundTasks):
-    """Handle issue labeled events"""
-    action = event_data.get("action")
-    issue = event_data.get("issue")
-    repository = event_data.get("repository")
-    
-    if action == "labeled" and "devin-remediate" in [l["name"] for l in issue.get("labels", [])]:
-        background_tasks.add_task(create_remediation_job, issue, repository)
-
-async def handle_check_suite_event(event_data: dict, background_tasks: BackgroundTasks):
-    """Handle check suite completion events"""
-    check_suite = event_data.get("check_suite")
-    repository = event_data.get("repository")
-    
-    if check_suite.get("conclusion") == "failure":
-        background_tasks.add_task(handle_ci_failure, check_suite, repository)
-    elif check_suite.get("conclusion") == "success":
-        background_tasks.add_task(handle_ci_success, check_suite, repository)
-
-async def create_remediation_job(issue: dict, repository: dict):
-    """Create a new remediation job and start Devin session"""
-    with next(get_session()) as session:
-        result = session.execute(
-            select(Job).where(Job.issue_number == issue["number"])
-        )
-        existing_job = result.scalar_one_or_none()
-        
-        if existing_job:
-            return
-        
-        job = Job(
-            issue_number=issue["number"],
-            issue_url=issue["html_url"],
-            state="queued",
-            labeled_at=datetime.now(timezone.utc)
-        )
-        session.add(job)
-        session.commit()
-        session.refresh(job)
-        
-        prompt = build_remediation_prompt(issue, repository)
-        
-        session_response = await devin_client.create_session(
-            prompt=prompt,
-            session_links=[issue["html_url"]]
-        )
-        
-        job.devin_session_id = session_response.get("session_id")
-        job.state = "fixing"
-        job.updated_at = datetime.now(timezone.utc)
-        session.commit()
-
-        # Report to Slack
-        await slack_reporter.report_state_transition(job, None)
-
-        comment = f"🤖 **Devin auto-fix started**\n\nDevin is working on this dependency upgrade. Session: {session_response.get('url')}"
-        await github_client.comment_on_issue(
-            repository["owner"]["login"],
-            repository["name"],
-            issue["number"],
-            comment
-        )
-
-async def handle_ci_failure(check_suite: dict, repository: dict):
-    """Handle CI failure with bounded repair attempt"""
-    with next(get_session()) as session:
-        result = session.execute(
-            select(Job).where(
-                Job.state == "checks_running",
-                Job.attempts < 1
-            ).order_by(Job.created_at.desc())
-        )
-        jobs = result.scalars().all()
-        
-        # Get the most recent job
-        if jobs:
-            job = jobs[0]
-            if job.devin_session_id:
-                failure_message = f"CI failed for your changes. Check suite failed: {check_suite.get('conclusion')}\n\nDetails: {check_suite.get('details_url')}\n\nPlease review and fix all failing checks before proceeding."
-                await devin_client.send_message(job.devin_session_id, failure_message)
-                
-                job.attempts += 1
-                job.updated_at = datetime.now(timezone.utc)
-                session.commit()
-                
-                # Report to Slack if CI fails after repair attempt
-                if job.attempts >= 1:
-                    job.state = "checks_failed"
-                    job.notes = f"CI failed after repair attempt: {check_suite.get('details_url')}"
-                    session.commit()
-                    await slack_reporter.report_state_transition(job, "checks_running")
-                    await github_reporter.report_state_transition(job, "checks_running")
-
-async def handle_ci_success(check_suite: dict, repository: dict):
-    """Handle CI success - mark job as validated"""
-    with next(get_session()) as session:
-        result = session.execute(
-            select(Job).where(Job.state == "checks_running").order_by(Job.created_at.desc())
-        )
-        jobs = result.scalars().all()
-
-        if jobs:
-            job = jobs[0]
-            previous_state = job.state
-            job.state = "checks_passed"
-            job.validated_at = datetime.now(timezone.utc)
-            job.effort_hours = 2.0  # Estimate: 2 hours saved per validated job
-            job.updated_at = datetime.now(timezone.utc)
-            session.commit()
-
-            # Report to Slack + GitHub (validated, with simulated-CI disclaimer)
-            await slack_reporter.report_state_transition(job, previous_state)
-            await github_reporter.report_state_transition(job, previous_state)
-
-async def handle_pull_request_event(event_data: dict, background_tasks: BackgroundTasks):
-    """Handle PR merged — the true terminal success (human-gated, we never auto-merge)."""
-    if event_data.get("action") == "closed" and event_data.get("pull_request", {}).get("merged"):
-        background_tasks.add_task(handle_pr_merged, event_data["pull_request"])
-
-async def handle_pr_merged(pr: dict):
-    """Mark the job merged once a human merges its PR."""
-    with next(get_session()) as session:
-        job = session.execute(
-            select(Job).where(Job.pr_number == pr["number"])
-        ).scalar_one_or_none()
-        if job and job.state != "merged":
-            previous_state = job.state
-            job.state = "merged"
-            job.updated_at = datetime.now(timezone.utc)
-            session.commit()
-            await slack_reporter.report_state_transition(job, previous_state)
-            await github_reporter.report_state_transition(job, previous_state)
-
-def build_remediation_prompt(issue: dict, repository: dict) -> str:
-    """Build prompt for Devin based on issue content"""
-    return f"""Analyze and fix this dependency upgrade blocker:
-
-**Issue:** {issue['title']}
-**Description:** {issue.get('body', '')}
-**Repository:** {repository['full_name']}
-
-**Task:**
-1. Investigate why the current dependency constraint is in place
-2. Analyze the code that uses this dependency
-3. Identify what would break with the target version
-4. Implement the necessary code changes to make the upgrade compatible
-5. Update any related tests
-6. Create a pull request with the complete remediation
-
-**Validation:**
-- The fix should allow unpinning the dependency
-- All tests should pass
-- No breaking changes to existing functionality
-- Follow the project's coding standards
-
-Please create a pull request with your changes."""
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "ok", "service": "dependency-remediation-orchestrator"}
+    return {"status": "ok", "service": "devin-auto-fix-orchestrator"}
+
 
 @app.get("/jobs")
 async def list_jobs(session: Session = Depends(get_session)):
-    """List all jobs"""
-    result = session.execute(select(Job))
-    jobs = result.scalars().all()
-    return [{"id": job.id, "issue_number": job.issue_number, "state": job.state, "created_at": job.created_at} for job in jobs]
+    jobs = session.execute(select(Job)).scalars().all()
+    return [
+        {"id": j.id, "issue_number": j.issue_number, "state": j.state, "created_at": j.created_at}
+        for j in jobs
+    ]
+
 
 @app.get("/metrics")
 async def get_metrics():
-    """Get job metrics for observability"""
     return get_job_metrics()
