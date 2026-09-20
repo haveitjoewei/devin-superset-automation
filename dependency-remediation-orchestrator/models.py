@@ -9,6 +9,7 @@ class Job(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     issue_number = Column(Integer, nullable=False, index=True)
+    issue_url = Column(String, nullable=True)
     devin_session_id = Column(String, nullable=True, index=True)
     pr_number = Column(Integer, nullable=True, index=True)
     state = Column(String, default="queued", nullable=False)  # queued, session_started, pr_opened, verifying, validated, failed, needs_human

@@ -12,14 +12,18 @@ class SlackReporter:
             return  # Skip if Slack not configured
         
         if previous_state is None:
-            # Job started - create root message
-            message = f"🚀 Job #{job.id} started for issue #{job.issue_number}"
+            # Job started - create root message with more context
+            session_link = f"<https://app.devin.ai/sessions/{job.devin_session_id}|Session>"
+            issue_link = f"<{job.issue_url}|Issue #{job.issue_number}>" if job.issue_url else f"Issue #{job.issue_number}"
+            message = f"Job #{job.id}: {issue_link}\n{session_link}\nStatus: {job.state}"
             response = await self.slack.post_message(message)
             
             # Save thread_ts for future updates
             if response.get("ok"):
                 with SessionLocal() as session:
-                    job.slack_thread_ts = response.get("message", {}).get("ts")
+                    session.query(Job).filter(Job.id == job.id).update({
+                        "slack_thread_ts": response.get("message", {}).get("ts")
+                    })
                     session.commit()
         else:
             # State transition - post to thread
@@ -39,18 +43,18 @@ class SlackReporter:
     def _get_state_message(self, job: Job, previous_state: str) -> str:
         """Generate message for state transition"""
         messages = {
-            "session_started": f"✅ Devin session started: {job.devin_session_id}",
-            "pr_opened": f"🔀 PR opened: https://github.com/haveitjoewei/superset/pull/{job.pr_number}",
-            "verifying": f"🔍 CI verification in progress",
-            "validated": f"✅ Job validated successfully",
-            "failed": f"❌ Job failed after {job.attempts} attempts",
-            "needs_human": f"👤 Job requires human intervention"
+            "session_started": f"Session started",
+            "pr_opened": f"<https://github.com/haveitjoewei/superset/pull/{job.pr_number}|PR #{job.pr_number}>",
+            "verifying": "CI verification in progress",
+            "validated": "Validated successfully",
+            "failed": f"Failed after {job.attempts} attempt(s)",
+            "needs_human": "Requires human intervention"
         }
-        return messages.get(job.state, f"State changed: {previous_state} → {job.state}")
+        return messages.get(job.state, f"{previous_state} → {job.state}")
     
     async def _notify_oncall_success(self, job: Job, thread_ts: str):
         """Notify on-call for successful validation"""
-        pr_link = f"https://github.com/haveitjoewei/superset/pull/{job.pr_number}" if job.pr_number else "No PR"
+        pr_link = f"<https://github.com/haveitjoewei/superset/pull/{job.pr_number}|PR #{job.pr_number}>" if job.pr_number else "No PR"
         message = f"Ready for review: {pr_link}. CI green, rescan clear."
         await self.slack.notify_oncall(message, thread_ts)
     

@@ -1,5 +1,5 @@
 import httpx
-from .config import settings
+from config import settings
 
 class GitHubClient:
     def __init__(self):
