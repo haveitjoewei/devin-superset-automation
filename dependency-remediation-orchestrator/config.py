@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     GITHUB_TOKEN: str
     GITHUB_WEBHOOK_SECRET: str
     
+    # Slack
+    SLACK_BOT_TOKEN: str = ""
+    SLACK_CHANNEL_ID: str = ""
+    ONCALL_SLACK_USER_ID: str = ""
+    
     # Server
     API_PORT: int = 8000
     WORKER_POLL_INTERVAL: int = 30

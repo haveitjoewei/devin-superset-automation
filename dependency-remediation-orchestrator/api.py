@@ -13,10 +13,13 @@ from database import get_session, init_db
 from models import Job
 from devin_client import DevinClient
 from github_client import GitHubClient
+from slack_reporter import SlackReporter
+from metrics import get_job_metrics
 
 app = FastAPI()
 devin_client = DevinClient()
 github_client = GitHubClient()
+slack_reporter = SlackReporter()
 
 @app.on_event("startup")
 async def startup_event():
@@ -70,6 +73,8 @@ async def handle_check_suite_event(event_data: dict, background_tasks: Backgroun
     
     if check_suite.get("conclusion") == "failure":
         background_tasks.add_task(handle_ci_failure, check_suite, repository)
+    elif check_suite.get("conclusion") == "success":
+        background_tasks.add_task(handle_ci_success, check_suite, repository)
 
 async def create_remediation_job(issue: dict, repository: dict):
     """Create a new remediation job and start Devin session"""
@@ -84,7 +89,8 @@ async def create_remediation_job(issue: dict, repository: dict):
         
         job = Job(
             issue_number=issue["number"],
-            state="queued"
+            state="queued",
+            labeled_at=datetime.utcnow()
         )
         session.add(job)
         session.commit()
@@ -101,6 +107,9 @@ async def create_remediation_job(issue: dict, repository: dict):
         job.state = "session_started"
         job.updated_at = datetime.utcnow()
         session.commit()
+        
+        # Report to Slack
+        await slack_reporter.report_state_transition(job, None)
         
         comment = f"🤖 **Dependency Remediation Started**\n\nDevin session created: {session_response.get('url')}\nSession ID: {session_response.get('session_id')}"
         await github_client.comment_on_issue(
@@ -131,6 +140,33 @@ async def handle_ci_failure(check_suite: dict, repository: dict):
                 job.attempts += 1
                 job.updated_at = datetime.utcnow()
                 session.commit()
+                
+                # Report to Slack if CI fails after repair attempt
+                if job.attempts >= 1:
+                    job.state = "failed"
+                    job.notes = f"CI failed after repair attempt: {check_suite.get('details_url')}"
+                    session.commit()
+                    await slack_reporter.report_state_transition(job, "verifying")
+
+async def handle_ci_success(check_suite: dict, repository: dict):
+    """Handle CI success - mark job as validated"""
+    with next(get_session()) as session:
+        result = session.execute(
+            select(Job).where(Job.state == "verifying").order_by(Job.created_at.desc())
+        )
+        jobs = result.scalars().all()
+        
+        if jobs:
+            job = jobs[0]
+            previous_state = job.state
+            job.state = "validated"
+            job.validated_at = datetime.utcnow()
+            job.effort_hours = 2.0  # Estimate: 2 hours saved per validated job
+            job.updated_at = datetime.utcnow()
+            session.commit()
+            
+            # Report to Slack
+            await slack_reporter.report_state_transition(job, previous_state)
 
 def build_remediation_prompt(issue: dict, repository: dict) -> str:
     """Build prompt for Devin based on issue content"""
@@ -167,3 +203,8 @@ async def list_jobs(session: Session = Depends(get_session)):
     result = session.execute(select(Job))
     jobs = result.scalars().all()
     return [{"id": job.id, "issue_number": job.issue_number, "state": job.state, "created_at": job.created_at} for job in jobs]
+
+@app.get("/metrics")
+async def get_metrics():
+    """Get job metrics for observability"""
+    return get_job_metrics()

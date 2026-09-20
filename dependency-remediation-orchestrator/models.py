@@ -17,3 +17,7 @@ class Job(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     cost = Column(Float, default=0.0, nullable=False)
     notes = Column(Text, nullable=True)
+    effort_hours = Column(Float, default=0.0, nullable=False)
+    validated_at = Column(DateTime, nullable=True)
+    labeled_at = Column(DateTime, nullable=True)
+    slack_thread_ts = Column(String, nullable=True)
