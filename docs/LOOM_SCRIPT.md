@@ -23,7 +23,7 @@ attention" comments. "This is the dead lane. That's what I'm automating."
 
 ## 0:45–2:45 — How: the demo (the core)
 
-1. **Trigger.** Label a GitHub issue `devin-remediate` (or run
+1. **Trigger.** Label a GitHub issue `devin-fix` (or run
    `scripts/simulate_issue.py <n>`). "An event starts it — no human in the loop."
 2. **Devin working.** Open the Devin session: it's reading the code, running the
    failing test, fixing it. "This is the engineering the bot can't do."

@@ -20,9 +20,9 @@ Ensure the GitHub Actions workflow is enabled in your repository.
    The CI will fail on first attempt, Devin should remove it on retry."
    ```
 
-2. **Add devin-remediate label:**
+2. **Add devin-fix label:**
    ```bash
-   gh issue edit <issue-number> --add-label "devin-remediate"
+   gh issue edit <issue-number> --add-label "devin-fix"
    ```
 
 3. **Monitor:**
@@ -56,9 +56,9 @@ Ensure the GitHub Actions workflow is enabled in your repository.
    The CI will always fail, requiring human intervention."
    ```
 
-2. **Add devin-remediate label:**
+2. **Add devin-fix label:**
    ```bash
-   gh issue edit <issue-number> --add-label "devin-remediate"
+   gh issue edit <issue-number> --add-label "devin-fix"
    ```
 
 3. **Monitor:**

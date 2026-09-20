@@ -32,8 +32,8 @@ The CI will fail on first attempt, Devin should remove it on retry.
     
     ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -o '[0-9]*$')
     
-    echo "Adding devin-remediate label..."
-    gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "devin-remediate"
+    echo "Adding devin-fix label..."
+    gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "devin-fix"
     
     echo "✅ Scenario 1 triggered: $ISSUE_URL"
     echo "Monitor the orchestrator logs and GitHub Actions workflow."
@@ -57,8 +57,8 @@ The CI will always fail, requiring human intervention.
     
     ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -o '[0-9]*$')
     
-    echo "Adding devin-remediate label..."
-    gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "devin-remediate"
+    echo "Adding devin-fix label..."
+    gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "devin-fix"
     
     echo "✅ Scenario 2 triggered: $ISSUE_URL"
     echo "Monitor the orchestrator logs and GitHub Actions workflow."

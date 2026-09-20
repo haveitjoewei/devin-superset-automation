@@ -30,7 +30,7 @@ def main():
     issue = gh_json(f"repos/{args.repo}/issues/{args.issue_number}")
     repo = gh_json(f"repos/{args.repo}")
     payload = {"action": "labeled", "issue": issue, "repository": repo,
-               "label": {"name": "devin-remediate"}}
+               "label": {"name": "devin-fix"}}
     body = json.dumps(payload).encode()
     sig = "sha256=" + hmac.new(settings.GITHUB_WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
 

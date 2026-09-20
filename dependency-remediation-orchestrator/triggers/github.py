@@ -48,7 +48,7 @@ async def handle_issue_event(event_data: dict, background_tasks):
     action = event_data.get("action")
     issue = event_data.get("issue")
     repository = event_data.get("repository")
-    if action == "labeled" and "devin-remediate" in [l["name"] for l in issue.get("labels", [])]:
+    if action == "labeled" and "devin-fix" in [l["name"] for l in issue.get("labels", [])]:
         background_tasks.add_task(create_remediation_job, issue, repository)
 
 
@@ -59,6 +59,10 @@ async def handle_check_suite_event(event_data: dict, background_tasks):
         background_tasks.add_task(handle_ci_failure, check_suite, repository)
     elif check_suite.get("conclusion") == "success":
         background_tasks.add_task(handle_ci_success, check_suite, repository)
+    # Production trigger (fully automated, no human label): when a Dependabot-authored
+    # PR's checks FAIL and no job owns it yet, auto-create a job here and hand the
+    # failing upgrade to Devin. That turns the "dead lane" catch fully hands-off. The
+    # demo uses the labeled-issue on-ramp instead (a deliberate human-approval gate).
 
 
 async def handle_pull_request_event(event_data: dict, background_tasks):

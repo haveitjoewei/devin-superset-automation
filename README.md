@@ -28,7 +28,7 @@ Devin turns that dead lane back into the fast lane.
 ## How it works
 
 ```
-Issue labeled `devin-remediate`
+Issue labeled `devin-fix`
   → api creates a Devin session
   → Devin fixes code + tests, opens a PR
   → worker tracks it: checks_running → checks_passed → merged
@@ -95,6 +95,18 @@ The trigger is pluggable. The same engine runs off any event that means "a fix i
 needed" — a Dependabot PR that fails CI, a scanner finding, or a ticket in
 Linear/Jira. Only the trigger adapter (`triggers/<source>.py`) changes; the Devin
 session logic and reporters are shared.
+
+**Two trigger modes:**
+- **Human-gated (this demo):** a person labels an issue `devin-fix` — a deliberate
+  approval gate deciding *what* is worth Devin's time. Real-world fit: an engineer or
+  security triager promotes a Dependabot alert / blocked upgrade into the work queue.
+- **Fully automated (production):** trigger straight off a **Dependabot PR whose CI
+  fails** (`pull_request` / `check_suite`) — no issue, no label. This is the hands-off
+  "dead-lane" catch. The seam is in `triggers/github.py`; see the note in
+  `handle_check_suite_event`.
+
+> Note: Dependabot itself opens **PRs and security alerts, not issues** — so the
+> labeled-issue flow is a human on-ramp, not a Dependabot behavior.
 
 ## Production considerations
 

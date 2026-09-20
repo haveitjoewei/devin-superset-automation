@@ -19,7 +19,7 @@ reports the whole lifecycle to Slack and a Superset dashboard.
 
 ```mermaid
 flowchart LR
-  A[Issue labeled devin-remediate] -->|webhook| B(api)
+  A[Issue labeled devin-fix] -->|webhook| B(api)
   B --> C[create job + Devin session]
   C --> D{worker polls session}
   D -->|PR opened| E[checks_running]
@@ -49,7 +49,7 @@ evidence, not proof of correctness. Merges are always human-gated.
 
 ## Webhook handlers
 
-- `issues.labeled` (label `devin-remediate`) → create job + start Devin session.
+- `issues.labeled` (label `devin-fix`) → create job + start Devin session.
 - `check_suite.completed` → on failure, send **one** bounded repair message to the
   session; on success, mark `checks_passed`.
 - `pull_request` (closed + merged) → mark `merged`.
