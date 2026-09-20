@@ -1,29 +1,36 @@
 # Dependency Remediation Orchestrator
 
-Automated dependency upgrade remediation using Devin API for the Apache Superset project.
+Production-grade orchestrator for autonomous dependency remediation using Devin API.
 
-## Features
+## Architecture
 
-- **Pattern Detection**: Automatically detects dependency issues from GitHub issues
-- **Business Logic**: Custom handling for specific Superset dependency blockers
-- **Devin API Integration**: Programmatic session creation for dependency analysis
-- **Multi-Dependency Support**: Handles apispec, marshmallow-sqlalchemy, and google-auth
-- **Structured Output**: Consistent JSON responses from Devin sessions
+**Stack:**
+- Python FastAPI (webhook API)
+- Background worker (polling loop)
+- SQLite (job state)
+- Docker Compose (api + worker services)
 
-## Real-World Issues
+**Event Handlers (GitHub webhooks) — return fast, never block on Devin:**
+- `issues.labeled` — when label == devin-remediate: create a job + kick off a Devin session
+- `pull_request` (opened) — match PR back to a job (branch/issue ref), begin verification
+- `check_suite.completed` — if conclusion == failure AND tied to a Devin PR: send one bounded follow-up message to that session with the failing check logs; else if success, mark job validated
 
-This orchestrator addresses documented Superset dependency blockers in `requirements/base.in`:
+**Job Lifecycle (SQLite jobs table):**
+- `id, issue_number, devin_session_id, pr_number, state, attempts, created_at, updated_at, cost, notes`
+- States: `queued → session_started → pr_opened → verifying → validated | failed | needs_human`
 
-1. **apispec** - Pinned to `<6.7.0` due to breaking unit test
-2. **marshmallow-sqlalchemy** - Pinned due to memory regression in test suite
-3. **google-auth** - Pinned due to install-path consistency issue
+**Devin API Usage:**
+- Create session: `POST https://api.devin.ai/v3/organizations/{org_id}/sessions`
+- Poll status: `GET https://api.devin.ai/v3/organizations/{org_id}/sessions/{id}`
+- Follow-up (CI repair): `POST https://api.devin.ai/v3/organizations/{org_id}/sessions/{id}/messages`
+- Concurrency cap = 2 active sessions (worker respects it)
 
-## Setup Instructions
+## Setup
 
 ### 1. Install Dependencies
 
 ```bash
-npm install
+pip install -r requirements.txt
 ```
 
 ### 2. Configure Environment Variables
@@ -35,62 +42,59 @@ cp .env.example .env
 Edit `.env` with your credentials:
 
 ```env
-# Devin API Configuration
+# Devin API Key
 DEVIN_API_KEY=your-devin-api-key
 DEVIN_ORG_ID=your-org-id
 
-# GitHub Configuration
-GITHUB_WEBHOOK_SECRET=your-webhook-secret
+# GitHub Token
 GITHUB_TOKEN=ghp-your-github-token
+GITHUB_WEBHOOK_SECRET=your-webhook-secret
 
-# Server Configuration
-PORT=3000
+# Worker Configuration
+WORKER_POLL_INTERVAL=30
+CONCURRENCY_CAP=2
 ```
 
-### 3. Start the Orchestrator
+### 3. Run Locally
+
+**API Server:**
+```bash
+python -m uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+**Worker:**
+```bash
+python worker.py
+```
+
+### 4. Run with Docker Compose
 
 ```bash
-npm start
+docker-compose up
 ```
-
-### 4. Configure GitHub Webhook
-
-1. Go to your GitHub repository settings
-2. Navigate to Webhooks → Add webhook
-3. **Payload URL**: Your server URL + `/webhook/github`
-4. **Content type**: `application/json`
-5. **Secret**: Your `GITHUB_WEBHOOK_SECRET`
-6. **Events**: "Issues" → "Issue created"
-7. Click "Add webhook"
-
-**Note:** For local development, use ngrok to expose localhost:3000 to the internet.
 
 ## Usage
 
-### Automatic Issue Processing
+### Triggering Remediation
 
-When a GitHub issue mentions one of the monitored dependencies:
+1. **Label a GitHub issue** with `devin-remediate`
+2. **Orchestrator creates a job** and starts a Devin session
+3. **Worker polls session status** and updates job state
+4. **When Devin creates a PR**, orchestrator matches it to the job
+5. **When CI runs**, orchestrator monitors check results
+6. **If CI fails**, orchestrator sends one bounded repair attempt to Devin
+7. **When CI passes**, job is marked as validated
 
-1. Orchestrator receives webhook
-2. Validates it's a dependency issue
-3. Creates Devin session via API
-4. Devin investigates the dependency
-5. Devin proposes and implements fixes
-6. Orchestrator posts results to GitHub
+### Monitoring
 
-### Triggering the Orchestrator
-
-Create a GitHub issue mentioning one of the dependencies:
-
-**Title:** "Fix apispec upgrade blocker"
-**Body:** "The apispec dependency is pinned to <6.7.0 due to a breaking unit test. We need to investigate and fix this to allow the upgrade."
-
-The orchestrator will detect "apispec" and trigger a focused Devin session.
-
-## Architecture
-
+**Check job status:**
+```bash
+curl http://localhost:8000/jobs
 ```
-GitHub Issue (Dependency) → Orchestrator → Devin API → Devin Session → GitHub Comment
+
+**Health check:**
+```bash
+curl http://localhost:8000/health
 ```
 
 ## Business Value
@@ -112,29 +116,30 @@ Superset faces real-world upgrade blockers that prevent security updates:
 - **Async + unattended.** Event fires, PR waiting at standup.
 - **One workflow, many problems.** Different upgrade problems delegated to autonomous agent.
 
-## API Usage
+## API Endpoints
 
-This component demonstrates programmatic Devin API usage:
+### POST /webhook/github
+**GitHub webhook handler**
 
-```javascript
-// Create Devin session
-POST /organizations/{org_id}/sessions
-{
-  "prompt": "Analyze and fix dependency upgrade: " + dependencyName,
-  "session_links": [issueUrl],
-  "structured_output_required": true,
-  "structured_output_schema": {
-    "type": "object",
-    "properties": {
-      "status": { "type": "string" },
-      "dependency_name": { "type": "string" },
-      "current_version": { "type": "string" },
-      "target_version": { "type": "string" },
-      "fix_summary": { "type": "string" }
-    }
-  }
-}
-```
+**Events handled:**
+- `issues.labeled` — Triggers remediation when `devin-remediate` label added
+- `pull_request.opened` — Matches PR to job for verification
+- `check_suite.completed` — Handles CI failure with bounded repair attempt
+
+### GET /health
+**Health check endpoint**
+
+### GET /jobs
+**List all jobs**
+
+Returns job state and metadata.
+
+## Security
+
+- **Webhook signature verification** using GitHub secrets
+- **Bounded repair attempts** (max 1 per job)
+- **Concurrency cap** prevents resource exhaustion
+- **Job state tracking** for audit and monitoring
 
 ## License
 
