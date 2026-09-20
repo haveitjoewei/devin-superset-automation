@@ -5,7 +5,7 @@ from sqlalchemy import select
 import hmac
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import settings
 from models import Job
@@ -170,7 +170,7 @@ async def create_remediation_job(issue: dict, repository: dict):
             issue_number=issue["number"],
             issue_url=issue["html_url"],
             state="queued",
-            labeled_at=datetime.utcnow()
+            labeled_at=datetime.now(timezone.utc)
         )
         session.add(job)
         session.commit()
@@ -185,7 +185,7 @@ async def create_remediation_job(issue: dict, repository: dict):
         
         job.devin_session_id = session_response.get("session_id")
         job.state = "session_started"
-        job.updated_at = datetime.utcnow()
+        job.updated_at = datetime.now(timezone.utc)
         session.commit()
         
         # Report to Slack
@@ -218,7 +218,7 @@ async def handle_ci_failure(check_suite: dict, repository: dict):
                 await devin_client.send_message(job.devin_session_id, failure_message)
                 
                 job.attempts += 1
-                job.updated_at = datetime.utcnow()
+                job.updated_at = datetime.now(timezone.utc)
                 session.commit()
                 
                 # Report to Slack if CI fails after repair attempt
@@ -240,9 +240,9 @@ async def handle_ci_success(check_suite: dict, repository: dict):
             job = jobs[0]
             previous_state = job.state
             job.state = "validated"
-            job.validated_at = datetime.utcnow()
+            job.validated_at = datetime.now(timezone.utc)
             job.effort_hours = 2.0  # Estimate: 2 hours saved per validated job
-            job.updated_at = datetime.utcnow()
+            job.updated_at = datetime.now(timezone.utc)
             session.commit()
             
             # Report to Slack

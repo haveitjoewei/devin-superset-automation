@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, Float, Text
 from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
+from datetime import datetime, timezone
 
 Base = declarative_base()
 
@@ -14,8 +14,8 @@ class Job(Base):
     pr_number = Column(Integer, nullable=True, index=True)
     state = Column(String, default="queued", nullable=False)  # queued, session_started, pr_opened, verifying, validated, failed, needs_human
     attempts = Column(Integer, default=0, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     cost = Column(Float, default=0.0, nullable=False)
     notes = Column(Text, nullable=True)
     effort_hours = Column(Float, default=0.0, nullable=False)

@@ -1,5 +1,5 @@
 from sqlalchemy import func, text
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from database import SessionLocal
 from models import Job
 
@@ -17,7 +17,7 @@ def get_job_metrics():
         success_rate = (validated_jobs / completed_jobs * 100) if completed_jobs > 0 else 0
         
         # Throughput (per day/week)
-        week_ago = datetime.utcnow() - timedelta(days=7)
+        week_ago = datetime.now(timezone.utc) - timedelta(days=7)
         validated_this_week = session.query(func.count(Job.id)).filter(
             Job.state == "validated",
             Job.validated_at >= week_ago

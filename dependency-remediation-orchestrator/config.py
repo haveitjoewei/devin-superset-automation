@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./jobs.db"
     
+    # Superset Dashboard
+    SUPERSET_HOST: str = "http://localhost:8088"
+    SUPERSET_USERNAME: str = "admin"
+    SUPERSET_PASSWORD: str = ""
+    SUPERSET_DATABASE_NAME: str = "devin_jobs"
+    
     class Config:
         env_file = ".env"
 
