@@ -24,8 +24,16 @@ async def startup_event():
 
 def verify_github_signature(payload: bytes, signature: str) -> bool:
     """Verify GitHub webhook signature"""
-    # Temporarily disabled for testing
-    return True
+    if not signature:
+        return False
+    
+    hmac_obj = hmac.new(
+        settings.GITHUB_WEBHOOK_SECRET.encode(),
+        payload,
+        hashlib.sha256
+    )
+    expected_signature = f"sha256={hmac_obj.hexdigest()}"
+    return hmac.compare_digest(expected_signature, signature)
 
 @app.post("/webhook/github")
 async def github_webhook(request: Request, background_tasks: BackgroundTasks):
