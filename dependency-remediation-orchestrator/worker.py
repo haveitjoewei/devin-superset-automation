@@ -4,11 +4,11 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .config import settings
-from .database import get_session, init_db
-from .models import Job
-from .devin_client import DevinClient
-from .github_client import GitHubClient
+from config import settings
+from database import get_session, init_db
+from models import Job
+from devin_client import DevinClient
+from github_client import GitHubClient
 
 devin_client = DevinClient()
 github_client = GitHubClient()

@@ -2,6 +2,10 @@
 
 A comprehensive demonstration of Devin's multi-channel automation capabilities for the Apache Superset project, showcasing event-driven workflows using the Devin API.
 
+## CI Test
+
+This line was added to test CI failure handling.
+
 ## Overview
 
 This repository contains multiple automation implementations that demonstrate how Devin can be integrated into different enterprise issue intake channels:
