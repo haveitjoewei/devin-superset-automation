@@ -28,12 +28,19 @@ Devin turns that dead lane back into the fast lane.
 ## How it works
 
 ```
-Issue labeled `devin-fix`
+detect blocked upgrades (nightly)  → files an issue
+  → human labels `devin-fix`        (approval gate — decides what's worth fixing)
   → api creates a Devin session
   → Devin fixes code + tests, opens a PR
   → worker tracks it: checks_running → checks_passed → merged
   → Slack thread + GitHub comments + Superset dashboard
 ```
+
+Each stage is owned by the right actor: **discovery** and the **fix** are automated;
+the two judgment calls — *what to fix* (the label) and *what to merge* — stay human.
+A nightly job (`scripts/detect_blocked_upgrades.py`, `.github/workflows/detect-blocked-deps.yml`)
+scans `requirements/*.in` for capped deps whose comments flag a blocker and opens
+unlabeled issues; a person approves by labeling.
 
 Full detail and the state machine: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

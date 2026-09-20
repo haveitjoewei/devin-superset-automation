@@ -1,0 +1,28 @@
+name: Detect blocked dependency upgrades
+
+# Nightly discovery stage: scans the target repo's requirements/*.in for blocked
+# upgrades and opens UNLABELED issues. A human applies the `devin-fix` label to
+# approve, which triggers the auto-fix pipeline. Discovery automated; approval human.
+
+on:
+  schedule:
+    - cron: "0 8 * * *"      # daily at 08:00 UTC
+  workflow_dispatch: {}       # allow manual runs from the Actions tab
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Detect blocked upgrades and file issues
+        working-directory: dependency-remediation-orchestrator
+        env:
+          # A PAT with `repo` (issues:write) scope on the TARGET fork.
+          # The default GITHUB_TOKEN cannot write issues to a different repository,
+          # so add this as a repo secret named DETECTOR_GH_TOKEN.
+          GH_TOKEN: ${{ secrets.DETECTOR_GH_TOKEN }}
+          TARGET_REPO: haveitjoewei/superset
+        run: python scripts/detect_blocked_upgrades.py --repo "$TARGET_REPO"

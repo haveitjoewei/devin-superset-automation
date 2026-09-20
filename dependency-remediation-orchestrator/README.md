@@ -55,6 +55,7 @@ maintainer approval — see the disclaimer in [../README.md](../README.md).
 ## Scripts
 | Script | Purpose |
 |---|---|
+| `scripts/detect_blocked_upgrades.py` | scan requirements/*.in for blocked upgrades, open issues for approval (`--dry-run` to preview) |
 | `scripts/seed_demo_data.py` | seed demo jobs so the dashboard renders |
 | `scripts/migrate_to_postgres.py` | migrate an old SQLite job store to Postgres |
 | `scripts/setup_superset.py` | print Superset connection/dataset setup steps |
