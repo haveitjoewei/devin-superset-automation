@@ -1,5 +1,5 @@
 import httpx
-from .config import settings
+from config import settings
 
 class DevinClient:
     def __init__(self):
@@ -49,7 +49,7 @@ class DevinClient:
     async def send_message(self, session_id: str, message: str) -> dict:
         """Send a follow-up message to a session"""
         url = f"{self.base_url}/organizations/{self.org_id}/sessions/{session_id}/messages"
-        payload = {"content": message}
+        payload = {"message": message}
         
         async with httpx.AsyncClient() as client:
             response = await client.post(url, json=payload, headers=self.headers)
