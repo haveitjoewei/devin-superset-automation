@@ -17,7 +17,8 @@ Target repository: [apache/superset](https://github.com/apache/superset) (via a 
 - **Forked Superset:** [haveitjoewei/superset](https://github.com/haveitjoewei/superset)
   - Issues remediated: apispec [#28](https://github.com/haveitjoewei/superset/issues/28) · [#31](https://github.com/haveitjoewei/superset/issues/31) · paramiko [#35](https://github.com/haveitjoewei/superset/issues/35)
   - Resulting PRs: apispec [#29](https://github.com/haveitjoewei/superset/pull/29) · **paramiko [#37](https://github.com/haveitjoewei/superset/pull/37)** (the meaty one — a `DSSKey` compat shim)
-- **Independent verification** (I ran the tests, didn't trust the agent): [docs/DEMO_VERIFICATION.md](docs/DEMO_VERIFICATION.md)
+- **How the fixes were verified** (I ran the tests, didn't trust the agent): [docs/VERIFICATION.md](docs/VERIFICATION.md)
+- **How the numbers were derived:** [docs/EVIDENCE.md](docs/EVIDENCE.md)
 - **Leadership dashboard:** "Devin Auto-Fix — Effectiveness" (Superset) — see [docs/images/](docs/images)
 - **Pitch deck:** [docs/deck.html](docs/deck.html)
 
@@ -31,10 +32,11 @@ Measured on apache/superset (last 12 months):
 
 - **2,658** Dependabot PRs; **~17%** need human code work (not a clean bump)
 - → **~450 upgrades/year** that fall out of the "merge in 6h" fast lane
-- ≈ **1,350 developer-hours/year** (~$73k–122k) sitting in a dead lane
-- CVE exposure (advisory → fix landed): median **34 days**, tail into years
+- ≈ **1,350 developer-hours/year** (~$135–200k of *capacity*, not cash) in a dead lane
+- CVE exposure (advisory → fix landed): median **34 days**, one CRITICAL at 634
 
-Devin turns that dead lane back into the fast lane.
+Devin turns that dead lane back into the fast lane. Every figure — measured vs assumed,
+with the exact queries — is in [docs/EVIDENCE.md](docs/EVIDENCE.md).
 
 ## How it works
 
