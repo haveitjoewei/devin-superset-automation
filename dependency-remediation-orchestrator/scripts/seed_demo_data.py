@@ -25,9 +25,18 @@ random.seed(42)  # reproducible
 # apispec deliberately omitted — leave it for the live demo run.
 DEPS = ["werkzeug", "cryptography", "urllib3", "pyarrow", "marshmallow-sqlalchemy",
         "redis", "celery", "sqlalchemy", "flask", "setuptools", "pyopenssl"]
-# a small young-pipeline mix: mostly shipped, one failure, one escalation, one active
-OUTCOMES = (["merged"] * 6 + ["checks_passed"] * 1 + ["checks_failed"] * 1 +
-            ["needs_human"] * 1 + ["fixing"] * 1)
+
+# Curated (state, stream) baseline — guarantees a believable mix AND that all three
+# streams appear among the SUCCESSFUL jobs (so "Dev Hours Saved by Stream" has 3 bars).
+# streams = the kinds of fixes the same engine handles: dependency upgrades (core),
+# re-enabling skipped tests, and small bugs surfaced by an upgrade.
+SPECS = [
+    ("merged", "dependency"), ("merged", "dependency"), ("merged", "dependency"),
+    ("merged", "test"),       ("merged", "bug"),
+    ("checks_passed", "dependency"), ("checks_passed", "test"),
+    ("checks_failed", "dependency"), ("needs_human", "dependency"),
+    ("fixing", "test"),
+]
 
 
 def _note(dep, stream):
@@ -45,11 +54,8 @@ def seed_demo_data(count=10):
         session.query(Job).filter(Job.devin_session_id.like("demo-%")).delete(synchronize_session=False)
         session.commit()
 
-        pool = OUTCOMES[:]
-        random.shuffle(pool)
         for i in range(count):
-            state = pool[i % len(pool)]
-            stream = random.choices(["dependency", "test", "bug"], weights=[70, 20, 10])[0]
+            state, stream = SPECS[i % len(SPECS)]
             dep = random.choice(DEPS)
 
             labeled = now - timedelta(days=random.uniform(0, 21), hours=random.uniform(0, 24))
