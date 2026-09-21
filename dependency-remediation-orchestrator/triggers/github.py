@@ -9,6 +9,7 @@ and reporters stay shared. `api.py` only routes; it knows nothing GitHub-specifi
 """
 from datetime import datetime, timezone
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 
 from config import settings
 from database import get_session
@@ -95,7 +96,11 @@ async def create_remediation_job(issue: dict, repository: dict):
             labeled_at=datetime.now(timezone.utc),
         )
         session.add(job)
-        session.commit()
+        try:
+            session.commit()  # unique(issue_number) makes this the atomic dedup point
+        except IntegrityError:
+            session.rollback()  # a concurrent delivery won the race — nothing to do
+            return
         session.refresh(job)
 
         session_response = await devin_client.create_session(
@@ -116,33 +121,37 @@ async def create_remediation_job(issue: dict, repository: dict):
 
 
 async def handle_ci_failure(check_suite: dict, repository: dict):
-    """One bounded repair attempt, then mark checks_failed."""
+    """Bounded CI repair: first failure -> ask Devin to fix and wait for the re-run;
+    a second failure -> escalate to a human. We never fail on the first attempt."""
     with next(get_session()) as session:
-        jobs = session.execute(
-            select(Job).where(Job.state == "checks_running", Job.attempts < 1)
-            .order_by(Job.created_at.desc())
-        ).scalars().all()
-        if not jobs:
-            return
-        job = jobs[0]
-        if not job.devin_session_id:
+        job = session.execute(
+            select(Job).where(Job.state == "checks_running").order_by(Job.created_at.desc())
+        ).scalars().first()
+        if not job or not job.devin_session_id:
             return
 
-        await devin_client.send_message(
-            job.devin_session_id,
-            f"CI failed for your changes ({check_suite.get('conclusion')}). "
-            f"Details: {check_suite.get('details_url')}. Please fix all failing checks.",
-        )
-        job.attempts += 1
-        job.updated_at = datetime.now(timezone.utc)
-        session.commit()
-
-        if job.attempts >= 1:
-            job.state = "checks_failed"
-            job.notes = f"CI failed after repair attempt: {check_suite.get('details_url')}"
+        details = check_suite.get("details_url")
+        if job.attempts < 1:
+            # First failure — request a bounded repair and STAY in checks_running so
+            # the next check_suite result (after Devin's new commit) is evaluated.
+            await devin_client.send_message(
+                job.devin_session_id,
+                f"CI failed for your changes ({check_suite.get('conclusion')}). "
+                f"Details: {details}. Please fix all failing checks.",
+            )
+            job.attempts += 1
+            job.notes = f"CI failed; requested bounded repair: {details}"
+            job.updated_at = datetime.now(timezone.utc)
             session.commit()
-            await slack_reporter.report_state_transition(job, "checks_running")
-            await github_reporter.report_state_transition(job, "checks_running")
+        else:
+            # Repair already attempted and CI still failing — escalate to on-call.
+            previous_state = job.state
+            job.state = "checks_failed"
+            job.notes = f"CI still failing after bounded repair: {details}"
+            job.updated_at = datetime.now(timezone.utc)
+            session.commit()
+            await slack_reporter.report_state_transition(job, previous_state)
+            await github_reporter.report_state_transition(job, previous_state)
 
 
 async def handle_ci_success(check_suite: dict, repository: dict):
