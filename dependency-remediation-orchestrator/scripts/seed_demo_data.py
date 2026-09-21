@@ -1,11 +1,15 @@
-"""Seed representative demo data so the Superset dashboard shows a real steady state.
+"""Seed a small, believable baseline so the dashboard looks alive — then run a REAL
+job in the demo to visibly move the needle.
 
-Generates ~8 weeks of jobs across states, streams, cost and time — a healthy
-pipeline a leader would recognize (high success rate, a few failures, some active).
-Only demo rows (devin_session_id LIKE 'demo-%') are cleared; real jobs are kept.
+Generates ~10 jobs over the last few weeks (a young pipeline a leader would
+recognize), then during the demo you label a real issue (e.g. apispec) and watch
+the tiles update live. Only demo rows (devin_session_id LIKE 'demo-%') are cleared;
+real jobs are kept.
 
-NOTE: this is representative demo data to illustrate the dashboard's shape, not
-live production numbers.
+  python scripts/seed_demo_data.py [count]      # default 10
+
+NOTE: representative demo data to show the dashboard's shape; production is live.
+`apispec` is intentionally excluded — reserve it for the live demo run.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,16 +22,12 @@ from models import Job
 
 random.seed(42)  # reproducible
 
-DEPS = [
-    ("apispec", "dependency"), ("setuptools", "dependency"), ("async_timeout", "dependency"),
-    ("testcontainers", "dependency"), ("cryptography", "dependency"), ("werkzeug", "dependency"),
-    ("marshmallow-sqlalchemy", "dependency"), ("pyarrow", "dependency"), ("urllib3", "dependency"),
-    ("sqlalchemy", "dependency"), ("flask", "dependency"), ("redis", "dependency"),
-    ("pandas", "dependency"), ("celery", "dependency"), ("pyopenssl", "dependency"),
-]
-# outcome distribution (state, weight)
-OUTCOMES = (["merged"] * 30 + ["checks_passed"] * 6 + ["checks_failed"] * 6 +
-            ["needs_human"] * 3 + ["fixing"] * 2 + ["checks_running"] * 2)
+# apispec deliberately omitted — leave it for the live demo run.
+DEPS = ["werkzeug", "cryptography", "urllib3", "pyarrow", "marshmallow-sqlalchemy",
+        "redis", "celery", "sqlalchemy", "flask", "setuptools", "pyopenssl"]
+# a small young-pipeline mix: mostly shipped, one failure, one escalation, one active
+OUTCOMES = (["merged"] * 6 + ["checks_passed"] * 1 + ["checks_failed"] * 1 +
+            ["needs_human"] * 1 + ["fixing"] * 1)
 
 
 def _note(dep, stream):
@@ -38,24 +38,24 @@ def _note(dep, stream):
     return f"Unblocked {dep} dependency upgrade"
 
 
-def seed_demo_data():
+def seed_demo_data(count=10):
     init_db()
     now = datetime.now(timezone.utc)
     with SessionLocal() as session:
         session.query(Job).filter(Job.devin_session_id.like("demo-%")).delete(synchronize_session=False)
         session.commit()
 
-        n = 60
-        for i in range(n):
-            state = random.choice(OUTCOMES)
-            # stream mix: ~68% dependency, ~20% test, ~12% bug
-            stream = random.choices(["dependency", "test", "bug"], weights=[68, 20, 12])[0]
-            dep = random.choice(DEPS)[0]
+        pool = OUTCOMES[:]
+        random.shuffle(pool)
+        for i in range(count):
+            state = pool[i % len(pool)]
+            stream = random.choices(["dependency", "test", "bug"], weights=[70, 20, 10])[0]
+            dep = random.choice(DEPS)
 
-            labeled = now - timedelta(days=random.uniform(0, 56), hours=random.uniform(0, 24))
+            labeled = now - timedelta(days=random.uniform(0, 21), hours=random.uniform(0, 24))
             effort = {"dependency": random.uniform(2, 4), "test": random.uniform(1, 3),
                       "bug": random.uniform(3, 6)}[stream]
-            cost = round(random.uniform(3, 22), 2)
+            cost = round(random.uniform(4, 18), 2)
 
             job = Job(
                 issue_number=9000 + i,
@@ -69,8 +69,7 @@ def seed_demo_data():
                 labeled_at=labeled,
             )
             if state in ("merged", "checks_passed"):
-                # MTTR: mostly hours, occasional multi-day
-                mttr_h = random.choice([random.uniform(0.3, 8)] * 4 + [random.uniform(8, 72)])
+                mttr_h = random.choice([random.uniform(0.3, 8)] * 4 + [random.uniform(8, 48)])
                 job.validated_at = labeled + timedelta(hours=mttr_h)
                 job.pr_number = 4000 + i
             job.created_at = labeled
@@ -79,8 +78,8 @@ def seed_demo_data():
 
         session.commit()
         total = session.query(Job).count()
-        print(f"Seeded 60 demo jobs (kept real jobs). Total rows: {total}")
+        print(f"Seeded {count} demo jobs (kept real jobs). Total rows: {total}")
 
 
 if __name__ == "__main__":
-    seed_demo_data()
+    seed_demo_data(int(sys.argv[1]) if len(sys.argv) > 1 else 10)
