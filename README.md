@@ -10,6 +10,13 @@ Slack and a Superset dashboard.
 
 Target repository: [apache/superset](https://github.com/apache/superset) (via a fork).
 
+![Architecture](docs/images/architecture.png)
+
+*A nightly job files blocked-upgrade issues; a human approves by labeling; the
+orchestrator (FastAPI API → trigger adapter → worker, backed by Postgres) drives a
+Devin session, reports to Slack + GitHub, and a dashboard reads job state. Detail in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).*
+
 ## Submission artifacts
 
 - **Loom walkthrough:** https://www.loom.com/share/8458da2bc6a64c43893ee9ed99355578
