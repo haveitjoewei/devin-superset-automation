@@ -12,7 +12,7 @@ Target repository: [apache/superset](https://github.com/apache/superset) (via a 
 
 ## Submission artifacts
 
-- **Loom walkthrough:** _add link_
+- **Loom walkthrough:** https://www.loom.com/share/8458da2bc6a64c43893ee9ed99355578
 - **Solution repo:** this repo — quickstart below, architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **Forked Superset:** [haveitjoewei/superset](https://github.com/haveitjoewei/superset)
   - Issues remediated: apispec [#28](https://github.com/haveitjoewei/superset/issues/28) · [#31](https://github.com/haveitjoewei/superset/issues/31) · paramiko [#35](https://github.com/haveitjoewei/superset/issues/35)
