@@ -1,144 +1,86 @@
+"""Seed representative demo data so the Superset dashboard shows a real steady state.
+
+Generates ~8 weeks of jobs across states, streams, cost and time — a healthy
+pipeline a leader would recognize (high success rate, a few failures, some active).
+Only demo rows (devin_session_id LIKE 'demo-%') are cleared; real jobs are kept.
+
+NOTE: this is representative demo data to illustrate the dashboard's shape, not
+live production numbers.
+"""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import random
+from datetime import datetime, timedelta, timezone
+
 from database import SessionLocal, init_db
 from models import Job
-from datetime import datetime, timedelta, timezone
-import random
+
+random.seed(42)  # reproducible
+
+DEPS = [
+    ("apispec", "dependency"), ("setuptools", "dependency"), ("async_timeout", "dependency"),
+    ("testcontainers", "dependency"), ("cryptography", "dependency"), ("werkzeug", "dependency"),
+    ("marshmallow-sqlalchemy", "dependency"), ("pyarrow", "dependency"), ("urllib3", "dependency"),
+    ("sqlalchemy", "dependency"), ("flask", "dependency"), ("redis", "dependency"),
+    ("pandas", "dependency"), ("celery", "dependency"), ("pyopenssl", "dependency"),
+]
+# outcome distribution (state, weight)
+OUTCOMES = (["merged"] * 30 + ["checks_passed"] * 6 + ["checks_failed"] * 6 +
+            ["needs_human"] * 3 + ["fixing"] * 2 + ["checks_running"] * 2)
+
+
+def _note(dep, stream):
+    if stream == "test":
+        return f"Re-enabled skipped test after {dep} upgrade"
+    if stream == "bug":
+        return f"Fixed bug surfaced by {dep} upgrade"
+    return f"Unblocked {dep} dependency upgrade"
+
 
 def seed_demo_data():
-    """Seed demo data for Superset dashboard"""
     init_db()
-    
     now = datetime.now(timezone.utc)
-    
     with SessionLocal() as session:
-        # Clear existing data
-        session.query(Job).delete()
+        session.query(Job).filter(Job.devin_session_id.like("demo-%")).delete(synchronize_session=False)
         session.commit()
-        
-        # Create demo jobs with realistic data
-        demo_jobs = [
-            {
-                "issue_number": 100,
-                "issue_url": "https://github.com/haveitjoewei/superset/issues/100",
-                "devin_session_id": "demo-session-001",
-                "pr_number": 101,
-                "state": "checks_passed",
-                "attempts": 1,
-                "cost": 2.50,
-                "effort_hours": 4.0,
-                "notes": "Fixed apispec version compatibility",
-                "validated_at": now - timedelta(days=1),
-                "labeled_at": now - timedelta(days=1, hours=2),
-                "slack_thread_ts": "1234567890.123456"
-            },
-            {
-                "issue_number": 102,
-                "issue_url": "https://github.com/haveitjoewei/superset/issues/102",
-                "devin_session_id": "demo-session-002",
-                "pr_number": 103,
-                "state": "checks_passed",
-                "attempts": 1,
-                "cost": 3.20,
-                "effort_hours": 6.0,
-                "notes": "Resolved marshmallow-sqlalchemy deprecation",
-                "validated_at": now - timedelta(days=2),
-                "labeled_at": now - timedelta(days=2, hours=3),
-                "slack_thread_ts": "1234567890.123457"
-            },
-            {
-                "issue_number": 104,
-                "issue_url": "https://github.com/haveitjoewei/superset/issues/104",
-                "devin_session_id": "demo-session-003",
-                "pr_number": 105,
-                "state": "checks_passed",
-                "attempts": 0,
-                "cost": 1.80,
-                "effort_hours": 3.0,
-                "notes": "Test failure fix",
-                "validated_at": now - timedelta(days=3),
-                "labeled_at": now - timedelta(days=3, hours=1),
-                "slack_thread_ts": "1234567890.123458"
-            },
-            {
-                "issue_number": 106,
-                "issue_url": "https://github.com/haveitjoewei/superset/issues/106",
-                "devin_session_id": "demo-session-004",
-                "pr_number": 107,
-                "state": "checks_failed",
-                "attempts": 1,
-                "cost": 2.10,
-                "effort_hours": 0.0,
-                "notes": "Requires manual intervention - complex dependency conflict",
-                "validated_at": None,
-                "labeled_at": now - timedelta(days=4),
-                "slack_thread_ts": "1234567890.123459"
-            },
-            {
-                "issue_number": 108,
-                "issue_url": "https://github.com/haveitjoewei/superset/issues/108",
-                "devin_session_id": "demo-session-005",
-                "pr_number": None,
-                "state": "checks_running",
-                "attempts": 0,
-                "cost": 1.50,
-                "effort_hours": 0.0,
-                "notes": "PR created, CI running",
-                "validated_at": None,
-                "labeled_at": now - timedelta(hours=2),
-                "slack_thread_ts": "1234567890.123460"
-            },
-            {
-                "issue_number": 110,
-                "issue_url": "https://github.com/haveitjoewei/superset/issues/110",
-                "devin_session_id": "demo-session-006",
-                "pr_number": None,
-                "state": "fixing",
-                "attempts": 0,
-                "cost": 0.50,
-                "effort_hours": 0.0,
-                "notes": "Session started, Devin working",
-                "validated_at": None,
-                "labeled_at": now - timedelta(minutes=30),
-                "slack_thread_ts": "1234567890.123461"
-            },
-            {
-                "issue_number": 112,
-                "issue_url": "https://github.com/haveitjoewei/superset/issues/112",
-                "devin_session_id": "demo-session-007",
-                "pr_number": None,
-                "state": "queued",
-                "attempts": 0,
-                "cost": 0.0,
-                "effort_hours": 0.0,
-                "notes": "Waiting for worker",
-                "validated_at": None,
-                "labeled_at": now - timedelta(minutes=15),
-                "slack_thread_ts": None
-            },
-            {
-                "issue_number": 114,
-                "issue_url": "https://github.com/haveitjoewei/superset/issues/114",
-                "devin_session_id": "demo-session-008",
-                "pr_number": 115,
-                "state": "needs_human",
-                "attempts": 1,
-                "cost": 3.50,
-                "effort_hours": 0.0,
-                "notes": "Requires architectural decision",
-                "validated_at": None,
-                "labeled_at": now - timedelta(days=5),
-                "slack_thread_ts": "1234567890.123462"
-            }
-        ]
-        
-        for job_data in demo_jobs:
-            job = Job(**job_data)
+
+        n = 60
+        for i in range(n):
+            state = random.choice(OUTCOMES)
+            # stream mix: ~68% dependency, ~20% test, ~12% bug
+            stream = random.choices(["dependency", "test", "bug"], weights=[68, 20, 12])[0]
+            dep = random.choice(DEPS)[0]
+
+            labeled = now - timedelta(days=random.uniform(0, 56), hours=random.uniform(0, 24))
+            effort = {"dependency": random.uniform(2, 4), "test": random.uniform(1, 3),
+                      "bug": random.uniform(3, 6)}[stream]
+            cost = round(random.uniform(3, 22), 2)
+
+            job = Job(
+                issue_number=9000 + i,
+                issue_url=f"https://github.com/haveitjoewei/superset/issues/{9000 + i}",
+                devin_session_id=f"demo-{i:03d}",
+                state=state,
+                attempts=1 if state == "checks_failed" else 0,
+                cost=cost,
+                effort_hours=round(effort, 1),
+                notes=_note(dep, stream),
+                labeled_at=labeled,
+            )
+            if state in ("merged", "checks_passed"):
+                # MTTR: mostly hours, occasional multi-day
+                mttr_h = random.choice([random.uniform(0.3, 8)] * 4 + [random.uniform(8, 72)])
+                job.validated_at = labeled + timedelta(hours=mttr_h)
+                job.pr_number = 4000 + i
+            job.created_at = labeled
+            job.updated_at = job.validated_at or labeled
             session.add(job)
-        
+
         session.commit()
-        print(f"Seeded {len(demo_jobs)} demo jobs")
+        total = session.query(Job).count()
+        print(f"Seeded 60 demo jobs (kept real jobs). Total rows: {total}")
+
 
 if __name__ == "__main__":
     seed_demo_data()

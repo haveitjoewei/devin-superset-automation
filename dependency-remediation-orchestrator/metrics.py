@@ -3,12 +3,15 @@ from datetime import datetime, timedelta, timezone
 from database import SessionLocal
 from models import Job
 
+# A job is a success once its checks pass; `merged` is that same success, further along.
+SUCCESS_STATES = ["checks_passed", "merged"]
+
 def get_job_metrics():
     """Calculate job metrics for reporting"""
     with SessionLocal() as session:
         # Basic counts
         total_jobs = session.query(func.count(Job.id)).scalar()
-        validated_jobs = session.query(func.count(Job.id)).filter(Job.state == "checks_passed").scalar()
+        validated_jobs = session.query(func.count(Job.id)).filter(Job.state.in_(SUCCESS_STATES)).scalar()
         failed_jobs = session.query(func.count(Job.id)).filter(Job.state == "checks_failed").scalar()
         needs_human_jobs = session.query(func.count(Job.id)).filter(Job.state == "needs_human").scalar()
 
@@ -19,7 +22,7 @@ def get_job_metrics():
         # Throughput (per day/week)
         week_ago = datetime.now(timezone.utc) - timedelta(days=7)
         validated_this_week = session.query(func.count(Job.id)).filter(
-            Job.state == "checks_passed",
+            Job.state.in_(SUCCESS_STATES),
             Job.validated_at >= week_ago
         ).scalar()
         throughput_per_day = validated_this_week / 7
@@ -27,7 +30,7 @@ def get_job_metrics():
         
         # Dev hours saved
         dev_hours_saved = session.query(func.sum(Job.effort_hours)).filter(
-            Job.state == "checks_passed"
+            Job.state.in_(SUCCESS_STATES)
         ).scalar() or 0
         
         # Devin cost
@@ -42,7 +45,7 @@ def get_job_metrics():
                 func.extract('epoch', Job.validated_at - Job.labeled_at) / 3600
             )
         ).filter(
-            Job.state == "checks_passed",
+            Job.state.in_(SUCCESS_STATES),
             Job.validated_at.isnot(None),
             Job.labeled_at.isnot(None)
         ).scalar()
