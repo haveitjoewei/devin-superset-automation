@@ -60,25 +60,53 @@ Full detail and the state machine: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 (plus `checks_failed`, `needs_human`). `checks_passed` means checks are green and
 it's **ready for human review — never auto-merged**.
 
-## Quickstart
+## Run / simulate the workflow
 
+### Prerequisites
+- Docker (for the self-contained stack) **or** Python 3.12 + a local Postgres.
+- Credentials in `.env` (copy `.env.example`): `DEVIN_API_KEY`, `DEVIN_ORG_ID`,
+  `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, and optionally `SLACK_BOT_TOKEN` /
+  `SLACK_CHANNEL_ID` / `ONCALL_SLACK_USER_ID`. Without Devin + GitHub creds the pipeline
+  runs but can't open real sessions/PRs — see the Loom for a live run.
+
+### 1. Start the services
 ```bash
 cd dependency-remediation-orchestrator
-cp .env.example .env          # fill in Devin, GitHub, Slack creds
-docker compose up             # api + worker
+cp .env.example .env            # fill in your credentials
+docker compose up               # postgres + api (:8000) + worker
 ```
+(Native alternative — runs against your own Postgres so the Superset dashboard sees the
+data: `pip install -r requirements.txt`, then `uvicorn api:app --port 8000` and
+`python worker.py` in two shells.)
 
-Postgres and Superset run alongside (see the orchestrator README). Then trigger
-a run:
+### 2. Trigger a remediation — two ways
 
+**A. Simulate the event locally (no public URL needed — recommended for a quick run):**
 ```bash
-# fire the pipeline for a labeled issue (replays the GitHub event locally)
-python scripts/simulate_issue.py <issue_number>
-# after Devin opens the PR, simulate CI success -> checks_passed (disclaimed)
-python scripts/simulate_ci.py
-# after a human merges -> merged
-python scripts/simulate_merge.py <pr_number>
+python scripts/simulate_issue.py <issue_number>   # replays a signed "issue labeled" webhook
+python scripts/simulate_ci.py                      # simulate check_suite success -> checks_passed
+python scripts/simulate_merge.py <pr_number>       # simulate PR merged -> merged
 ```
+Each replays exactly the GitHub event the real webhook would send, POSTed to the local API.
+
+**B. Real GitHub events (fully event-driven):** expose the API publicly and point a
+GitHub webhook at it, then just **label an issue `devin-fix`**:
+```bash
+ngrok http 8000                 # gives https://<id>.ngrok-free.app
+# set the fork's webhook URL to https://<id>.ngrok-free.app/webhook/github,
+# content-type application/json, secret = GITHUB_WEBHOOK_SECRET, events: issues, check_suite, pull_request
+```
+(ngrok free URLs change on restart — update the webhook URL each time. The simulate
+scripts above avoid this entirely.)
+
+### 3. Watch it work
+- **Slack** — a threaded update per job (if Slack creds set).
+- **GitHub** — lifecycle comments on the issue + PR.
+- **API** — `GET /jobs` and `GET /metrics` (JSON), `GET /health`.
+- **Superset** — the "Devin Auto-Fix — Effectiveness" dashboard (native run).
+
+Lifecycle: `queued → fixing → checks_running → checks_passed → merged` (or
+`checks_failed` / `needs_human`).
 
 ## Observability
 
