@@ -9,6 +9,25 @@ spend the time there, cut presentation overhead.
 
 ---
 
+## The 5-minute spine (trimmed running order)
+
+Every beat below hits one hiring signal; cut anything not here. Detail follows.
+
+| Time | Beat | On screen | Signal it proves |
+|---|---|---|---|
+| 0:00–0:30 | Problem + what I built + what I'll show | Slide 1 | customer judgment |
+| 0:30–1:00 | Cost (evidence-captioned) + capacity≠cash + the 3 metrics | Slide 1 | economic framing, honesty |
+| 1:00–1:35 | Before/after architecture; "never auto-merges"; one trade-off | Slide 2 | engineering ownership |
+| 1:35–3:25 | **LIVE:** label #31 → Slack/GitHub live → **real failing test → Devin diff → test passing** → simulated `check_suite` drives bounded repair → PR (backup PR #29) | live screen | *the system works* |
+| 3:25–3:55 | One decision that withstands scrutiny: two-strike CI repair + never-auto-merge | live code | senior-IC credibility |
+| 3:55–4:30 | Dashboard (3 metrics, live tile moves) + why-Devin responsibility line | dashboard + Slide 3 | measures value, product judgment |
+| 4:30–5:00 | Ladder + baseline→run POC, thresholds agreed up front | Slide 5 | drives adoption |
+
+Half the time is the live demo. If you overrun, cut the architecture trade-off and
+the second engineering decision first — never cut the real failing→passing test.
+
+---
+
 ## Open (0:00–0:30)
 
 **[CORE]** Straight in — no metaphor yet.
