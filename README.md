@@ -10,6 +10,17 @@ Slack and a Superset dashboard.
 
 Target repository: [apache/superset](https://github.com/apache/superset) (via a fork).
 
+## Submission artifacts
+
+- **Loom walkthrough:** _add link_
+- **Solution repo:** this repo — quickstart below, architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Forked Superset:** [haveitjoewei/superset](https://github.com/haveitjoewei/superset)
+  - Issues remediated: apispec [#28](https://github.com/haveitjoewei/superset/issues/28) · [#31](https://github.com/haveitjoewei/superset/issues/31) · paramiko [#35](https://github.com/haveitjoewei/superset/issues/35)
+  - Resulting PRs: apispec [#29](https://github.com/haveitjoewei/superset/pull/29) · **paramiko [#37](https://github.com/haveitjoewei/superset/pull/37)** (the meaty one — a `DSSKey` compat shim)
+- **Independent verification** (I ran the tests, didn't trust the agent): [docs/DEMO_VERIFICATION.md](docs/DEMO_VERIFICATION.md)
+- **Leadership dashboard:** "Devin Auto-Fix — Effectiveness" (Superset) — see [docs/images/](docs/images)
+- **Pitch deck:** [docs/deck.html](docs/deck.html)
+
 ## The problem
 
 Scanners find vulnerable deps and Dependabot proposes upgrades — but both stop
