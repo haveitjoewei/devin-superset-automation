@@ -136,61 +136,59 @@
   <!-- 1 -->
   <section class="slide on">
     <div class="eyebrow"><b>01</b> · The problem</div>
-    <h1>A dependency upgrade that <span class="g">breaks the build</span> is a dead lane.</h1>
-    <p class="lede">I ran a static analysis of Apache Superset's issues and PRs to find the
-      highest-value, most-remediable work. It's dependency upgrades — bots find them, then stop
-      when the change breaks code or tests.</p>
+    <h1>When an update breaks the app, <span class="g">someone has to fix it</span>.</h1>
+    <p class="lede">Update bots propose new library versions. This project uses Devin to repair the code when an update breaks Apache Superset.</p>
     <div class="stats">
-      <div class="stat"><div class="n">2,600+</div><div class="l">Dependabot PRs / 12 mo</div><div class="e">gh GraphQL · one repo</div></div>
-      <div class="stat"><div class="n">~17%</div><div class="l">need human code work</div><div class="e">non-bot commits · last 100 PRs</div></div>
-      <div class="stat"><div class="n">~450</div><div class="l">upgrades/yr in the dead lane</div><div class="e">17% × measured volume</div></div>
-      <div class="stat"><div class="n">~1,350</div><div class="l">engineer-hours/yr</div><div class="e">× ~3 h/fix · assumption</div></div>
-      <div class="stat"><div class="n">$135–200k</div><div class="l">/yr, one repo</div><div class="e">capacity cost · not cash</div></div>
-      <div class="stat hot"><div class="n">634 days</div><div class="l">one CRITICAL CVE unfixed</div><div class="e">advisory → fix landed</div></div>
+      <div class="stat"><div class="n">2,600+</div><div class="l">update requests in a year</div><div class="e">reported Superset analysis</div></div>
+      <div class="stat"><div class="n">~17%</div><div class="l">may need manual work</div><div class="e">17 of 100 sampled requests</div></div>
+      <div class="stat"><div class="n">~450</div><div class="l">updates/year could need help</div><div class="e">estimate: 17% × annual count</div></div>
+      <div class="stat"><div class="n">~1,350</div><div class="l">hours of work per year</div><div class="e">assumes 3 hours per fix</div></div>
+      <div class="stat"><div class="n">$122–203k</div><div class="l">estimated value of that time</div><div class="e">assumes $90–150/hour</div></div>
+      <div class="stat hot"><div class="n">634 days</div><div class="l">longest reported fix delay</div><div class="e">advisory date to dependency change</div></div>
     </div>
-    <p class="foot">Capacity reclaimed ≠ cash saved. 634 days is a measured exposure window, not a claim we patch CVEs.</p>
+    <p class="foot">These figures estimate the opportunity, not savings achieved. The sample has limits; see docs/EVIDENCE.md.</p>
   </section>
 
   <!-- 2 -->
   <section class="slide">
     <div class="eyebrow"><b>02</b> · Architecture</div>
-    <h1>One engine — and it <span class="g">never auto-merges</span>.</h1>
+    <h1>Devin makes the fix. <span class="g">A person approves it.</span></h1>
     <div class="ba">
       <div class="col before">
-        <h3>Before</h3><div class="tag">manual · long MTTR</div>
-        <div class="step"><span class="d"></span>Dependabot opens a PR</div>
-        <div class="step"><span class="d"></span>CI breaks on the upgrade</div>
-        <div class="step"><span class="d"></span>Engineer investigates + fixes code</div>
-        <div class="step"><span class="d"></span>Re-runs CI, reviews, merges</div>
+        <h3>Before</h3><div class="tag">An engineer does the repair</div>
+        <div class="step"><span class="d"></span>An update bot proposes a change</div>
+        <div class="step"><span class="d"></span>Automated checks fail</div>
+        <div class="step"><span class="d"></span>An engineer investigates and fixes it</div>
+        <div class="step"><span class="d"></span>The team tests, reviews, and merges</div>
       </div>
       <div class="mid">→</div>
       <div class="col after">
-        <h3>After</h3><div class="tag">Devin owns the middle</div>
-        <div class="step"><span class="d"></span>Detector flags the blocked upgrade</div>
-        <div class="step"><span class="d"></span>Engineer approves (label)</div>
-        <div class="step owned"><span class="d"></span>Devin fixes + iterates on CI</div>
-        <div class="step owned"><span class="d"></span>Status streams to Slack + GitHub</div>
-        <div class="step"><span class="d"></span>Human reviews + merges</div>
+        <h3>After</h3><div class="tag">Devin does the repair</div>
+        <div class="step"><span class="d"></span>A scan finds a blocked update</div>
+        <div class="step"><span class="d"></span>A person approves the work</div>
+        <div class="step owned"><span class="d"></span>Devin fixes the code and tests</div>
+        <div class="step owned"><span class="d"></span>Slack and GitHub show progress</div>
+        <div class="step"><span class="d"></span>A person reviews and merges</div>
       </div>
     </div>
     <div class="funnel">
       <span class="k">DETECT</span><i>→</i><span>APPROVE</span><i>→</i><span class="k">FIX</span><i>→</i><span class="k">CHECK</span><i>→</i><span>MERGE</span>
     </div>
-    <p class="foot">Devin is the coding worker. My service owns orchestration, job state, and verification — deliberately simple: Postgres, not Kafka; a custom handler, not a black-box integration.</p>
+    <p class="foot">The app starts Devin, tracks progress, and posts updates. Failed checks get one repair attempt before a person takes over.</p>
   </section>
 
   <!-- 3 · components -->
   <section class="slide">
     <div class="eyebrow"><b>03</b> · What I built</div>
-    <h1>The components — <span class="g">Devin codes, my service orchestrates</span>.</h1>
+    <h1>How <span class="g">the services connect</span>.</h1>
     <figure class="diagram">
-      <svg viewBox="0 0 940 400" role="img" aria-label="Component architecture. GitHub webhooks and a nightly detector feed a FastAPI orchestrator service containing the GitHub trigger adapter, a worker, reporters, and a Postgres job store. The orchestrator creates and polls Devin sessions, reports status to Slack and GitHub, and Superset reads the Postgres store.">
+      <svg viewBox="0 0 940 400" role="img" aria-label="GitHub sends events to the app. The app starts Devin, tracks progress in Postgres, and posts updates to Slack and GitHub. Superset reads the stored results.">
         <defs>
           <marker id="ah" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#5b6472"/></marker>
           <marker id="ahk" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#37d3a6"/></marker>
         </defs>
         <rect class="dg-zone" x="255" y="52" width="400" height="300" rx="14"/>
-        <text class="dg-zt" x="267" y="72">ORCHESTRATOR · what I built</text>
+        <text class="dg-zt" x="267" y="72">APP · what I built</text>
 
         <rect class="dg-box" x="20" y="70" width="150" height="58" rx="9"/>
         <text class="dg-t" x="95" y="96" text-anchor="middle">GitHub</text>
@@ -202,7 +200,7 @@
 
         <rect class="dg-box" x="285" y="80" width="160" height="58" rx="9"/>
         <text class="dg-t" x="365" y="106" text-anchor="middle">API · FastAPI</text>
-        <text class="dg-s" x="365" y="122" text-anchor="middle">verify sig · route</text>
+        <text class="dg-s" x="365" y="122" text-anchor="middle">check and route events</text>
 
         <rect class="dg-box" x="470" y="80" width="170" height="58" rx="9"/>
         <text class="dg-t" x="555" y="106" text-anchor="middle">triggers/github</text>
@@ -210,7 +208,7 @@
 
         <rect class="dg-box" x="285" y="175" width="160" height="58" rx="9"/>
         <text class="dg-t" x="365" y="201" text-anchor="middle">worker</text>
-        <text class="dg-s" x="365" y="217" text-anchor="middle">poll · advance</text>
+        <text class="dg-s" x="365" y="217" text-anchor="middle">check progress</text>
 
         <rect class="dg-box" x="470" y="175" width="170" height="58" rx="9"/>
         <text class="dg-t" x="555" y="201" text-anchor="middle">reporters</text>
@@ -226,11 +224,11 @@
 
         <rect class="dg-box" x="700" y="175" width="170" height="58" rx="9"/>
         <text class="dg-t" x="785" y="201" text-anchor="middle">Slack + GitHub</text>
-        <text class="dg-s" x="785" y="217" text-anchor="middle">live status · on-call</text>
+        <text class="dg-s" x="785" y="217" text-anchor="middle">updates and alerts</text>
 
         <rect class="dg-box" x="700" y="285" width="170" height="55" rx="9"/>
         <text class="dg-t" x="785" y="310" text-anchor="middle">Superset</text>
-        <text class="dg-s" x="785" y="326" text-anchor="middle">leadership dashboard</text>
+        <text class="dg-s" x="785" y="326" text-anchor="middle">results dashboard</text>
 
         <line class="dg-a" x1="95" y1="250" x2="95" y2="132" marker-end="url(#ah)"/>
         <text class="dg-l" x="103" y="196">files issues</text>
@@ -253,65 +251,65 @@
         <line class="dg-i" x1="555" y1="138" x2="555" y2="173" marker-end="url(#ah)"/>
         <line class="dg-i" x1="448" y1="212" x2="466" y2="212" marker-end="url(#ah)"/>
       </svg>
-      <figcaption>An event — a labeled issue, a CI result, a merge — hits the FastAPI service, which verifies it and routes it through the GitHub trigger adapter; the adapter opens a Devin session and the worker polls it, persisting each state change to Postgres while the reporters stream status to Slack and GitHub. A nightly detector files the issues; Superset reads the same store.</figcaption>
+      <figcaption>GitHub events start repairs and update their status. The worker checks Devin’s progress. Postgres stores the results for Slack, GitHub, and the Superset dashboard.</figcaption>
     </figure>
-    <p class="foot">Devin (green) is the only autonomous-coding component. Everything else — validation, state, verification, reporting — is orchestration I own, so it stays inspectable, costed, and governed. Adapters are pluggable: a new trigger or reporter is one file.</p>
+    <p class="foot">Devin writes the fix. The app connects the services and records what happened. People approve the work and the merge.</p>
   </section>
 
   <!-- 4 · why devin -->
   <section class="slide">
     <div class="eyebrow"><b>04</b> · Why Devin</div>
-    <h1>The question isn't features — it's <span class="g">who owns the engineering</span>.</h1>
+    <h1>Devin handles <span class="g">the coding work</span>.</h1>
     <table>
-      <thead><tr><th>Approach</th><th>What you'd own</th></tr></thead>
+      <thead><tr><th>Approach</th><th>Work required</th></tr></thead>
       <tbody>
-        <tr><td class="who">Deterministic automation</td><td>Known transforms + predefined recovery paths only. Breaks the moment an upgrade needs judgment.</td></tr>
-        <tr><td class="who">Roll your own agent runtime</td><td>You build and operate the agent runtime, execution environment, session lifecycle, and every integration.</td></tr>
-        <tr class="mine"><td class="who">This Devin integration</td><td>Devin does the autonomous coding — investigate, fix, iterate on failing CI, validate. My service owns events, policy, reporting, and state.</td></tr>
+        <tr><td class="who">Fixed scripts</td><td>Good for predictable changes. New failure patterns need new repair logic.</td></tr>
+        <tr><td class="who">Build your own coding agent</td><td>Build and maintain the coding environment, agent, and integrations.</td></tr>
+        <tr class="mine"><td class="who">This Devin integration</td><td>Devin investigates and edits the code. This app starts the work, follows progress, and reports results.</td></tr>
       </tbody>
     </table>
-    <p class="foot">Built on Devin's session API — create session, poll status, send follow-up messages, read PR metadata — with the customer-specific orchestration kept ours. That split is what makes it deployable.</p>
+    <p class="foot">The integration uses Devin’s API to start sessions, check progress, and request a repair after failed checks.</p>
   </section>
 
   <!-- 4 -->
   <section class="slide">
     <div class="eyebrow"><b>05</b> · Measurement</div>
-    <h1>Verified outcomes, <span class="g">not AI activity</span>.</h1>
-    <p class="lede">Merge is a human step, so I don't hide it inside one MTTR number. Three metrics separate what the system controls from the org's review bottleneck.</p>
+    <h1>Measure <span class="g">useful fixes</span>.</h1>
+    <p class="lede">For a pilot, track how quickly fixes are ready, how long review takes, and how much help they need.</p>
     <div class="metrics">
-      <div class="m"><div class="k">Primary · ours</div><div class="t">Time to review-ready PR</div><div class="s">Approved event → a PR meeting the validation criteria. What the system actually controls.</div></div>
-      <div class="m"><div class="k">Business</div><div class="t">Time to merged</div><div class="s">Includes human review + merge — the full customer workflow.</div></div>
-      <div class="m"><div class="k">Reliability</div><div class="t">Validated-PR yield</div><div class="s">% of eligible issues reaching a PR with <b>zero human code edits</b>.</div></div>
+      <div class="m"><div class="k">Speed</div><div class="t">Time to ready for review</div><div class="s">From approval to a proposed fix that passes the agreed checks.</div></div>
+      <div class="m"><div class="k">Business</div><div class="t">Time to merge</div><div class="s">From approval through human review to the merged change.</div></div>
+      <div class="m"><div class="k">Reliability</div><div class="t">Fixes without manual edits</div><div class="s">Share of attempted fixes that pass checks without a person editing the code.</div></div>
     </div>
-    <p class="foot">A live Superset dashboard reads the same job store. Baseline is representative history to show the shape; the run in the demo is real.</p>
+    <p class="foot">These are proposed pilot measures. The demo dashboard includes sample data; saved hours are estimates and demo check results are simulated.</p>
   </section>
 
   <!-- 5 -->
   <section class="slide">
     <div class="eyebrow"><b>06</b> · Rollout</div>
-    <h1>A measured <span class="g">two-week bet</span>, one rung at a time.</h1>
+    <h1>Start with a <span class="g">two-week trial</span>.</h1>
     <div class="split">
       <div class="ladder">
-        <div class="rung">Architectural redesigns <small>later</small></div>
-        <div class="rung">Multi-file features</div>
+        <div class="rung">Major redesigns <small>later</small></div>
+        <div class="rung">Larger features</div>
         <div class="rung">Bug fixes</div>
-        <div class="rung">UI tweaks</div>
-        <div class="rung base">Dependency upgrades / lint <small>start here</small></div>
+        <div class="rung">Small interface changes</div>
+        <div class="rung base">Dependency updates <small>start here</small></div>
       </div>
       <div class="poc">
-        <div class="wk"><b>WEEK 1</b><div>Establish the baseline on a representative set of blocked upgrades.</div></div>
-        <div class="wk"><b>WEEK 2</b><div>Run the automation on the same class of work.</div></div>
-        <div class="measures">MEASURE — validated-PR yield · time to review-ready · human intervention · cost per fix<br>Thresholds agreed <b style="color:var(--devin)">before</b> we start. ~70% yield is a fair opening target if Superset holds — set against your baseline, not promised.</div>
+        <div class="wk"><b>WEEK 1</b><div>Measure manual effort on a sample of blocked updates.</div></div>
+        <div class="wk"><b>WEEK 2</b><div>Try Devin on comparable updates and review the fixes.</div></div>
+        <div class="measures">COMPARE — usable fixes · time to review · manual work · cost per fix<br>Agree on success criteria <b style="color:var(--devin)">before</b> starting.</div>
       </div>
     </div>
-    <p class="foot">Today it's a working fix loop in Superset. The engagement is a measured bet: clear one rung on one repo in two weeks — with the evidence to decide the next.</p>
+    <p class="foot">Try one kind of work in one repository. Use the results to decide whether to expand.</p>
   </section>
 </div>
 
 <div class="bar"><i id="prog"></i></div>
 <div class="brand"><b>Devin Auto-Fix</b> · apache/superset</div>
 <div class="hint">← → to navigate</div>
-<div class="nav"><span id="count">1 / 5</span><span class="dots" id="dots"></span></div>
+<div class="nav"><span id="count">1 / 6</span><span class="dots" id="dots"></span></div>
 
 <script>
   const slides=[...document.querySelectorAll('.slide')];

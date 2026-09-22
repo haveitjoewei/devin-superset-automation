@@ -1,78 +1,61 @@
-# Architecture
+# How the app works
 
-Event-driven system that turns a labeled GitHub issue into an autonomous
-dependency-upgrade fix (a Devin session), tracks it to a validated PR, and
-reports the whole lifecycle to Slack and a Superset dashboard.
+The app receives GitHub events, starts Devin repairs, and tracks each fix. People approve the work and merge the result.
 
 ## Components
 
-| Component | Role |
+| Component | Job |
 |---|---|
-| **api** (FastAPI) | Receives GitHub webhooks, verifies signatures, creates jobs + Devin sessions. Returns fast — never blocks on Devin. |
-| **worker** (polling loop) | Polls active Devin sessions, advances job state, captures PR + cost. Respects a concurrency cap on *starting* jobs. |
-| **Postgres** | Job store. Also the data source for the Superset dashboard (`vw_job_metrics` view). |
-| **SlackReporter** | One thread per job; threaded updates on each transition; on-call @mention when checks pass. |
-| **GitHubReporter** | Posts lifecycle status back to the issue and PR. |
-| **Superset** | Leadership dashboard (success rate, throughput, dev-hours saved, MTTR) off `vw_job_metrics`. |
+| `api.py` | Check the webhook signature and route the event |
+| `triggers/github.py` | Start fixes and handle check results and merges |
+| `worker.py` | Poll Devin for progress, PR details, and usage |
+| Postgres | Store jobs and provide `vw_job_metrics` for the dashboard |
+| `reporters/` | Post updates to Slack and GitHub |
+| Superset | Display results and timing from the database |
 
-## Event flow
+## Flow
 
 ```mermaid
 flowchart LR
-  A[Issue labeled devin-fix] -->|webhook| B(api)
-  B --> C[create job + Devin session]
-  C --> D{worker polls session}
-  D -->|PR opened| E[checks_running]
-  E -->|check_suite success| F[checks_passed]
-  F -->|human merges PR| G[merged]
-  E -->|check_suite failure| H[one bounded repair, then checks_failed]
-  D -->|session ended, no PR| I[needs_human]
-  E & F & G & H & I --> J[(Postgres)]
-  J --> K[Slack thread]
-  J --> L[Superset dashboard]
+  A[Person labels issue devin-fix] --> B[App starts Devin]
+  B --> C[Devin opens a PR]
+  C --> D{Automated checks}
+  D -->|Pass| E[Person reviews and merges]
+  D -->|Fail| F[Devin gets one repair attempt]
+  F --> D
 ```
 
-## Job lifecycle (state machine)
+A second check failure stops the repair loop and asks for human attention. The app records progress in Postgres and posts updates to Slack and GitHub.
+
+The nightly detector opens issues for blocked upgrades. It does not approve them or start repairs.
+
+## Job states
 
 | State | Meaning |
 |---|---|
-| `queued` | job created, session not yet started |
-| `fixing` | Devin session running |
-| `checks_running` | PR opened, automated checks in flight |
-| `checks_passed` | checks green — **ready for human review (not auto-merged)** |
-| `merged` | a human merged the PR — the fix shipped (terminal success) |
-| `checks_failed` | checks failed after one bounded repair attempt |
-| `needs_human` | session ended without a PR, or an error — needs attention |
+| `queued` | Job recorded; waiting to start |
+| `fixing` | Devin is working |
+| `checks_running` | PR found; waiting for check results |
+| `checks_passed` | Checks reported success; ready for human review |
+| `merged` | A merge event was received |
+| `checks_failed` | Checks failed after one repair, or the Devin session failed |
+| `needs_human` | Session ended without a PR, or polling failed |
 
-`checks_passed` is deliberately **not** called "validated": green checks are
-evidence, not proof of correctness. Merges are always human-gated.
+The demo can simulate check and merge events. These states alone do not prove that tests ran or a PR was merged. See [verification notes](VERIFICATION.md).
 
-## Webhook handlers
+## Integrations
 
-- `issues.labeled` (label `devin-fix`) → create job + start Devin session.
-- `check_suite.completed` → on failure, send **one** bounded repair message to the
-  session; on success, mark `checks_passed`.
-- `pull_request` (closed + merged) → mark `merged`.
+GitHub's issue-label event starts a fix. Check-suite results update its status, and a closed-and-merged PR event records the merge.
 
-The worker fills the gap between "session started" and "PR opened" by polling the
-Devin API (PR arrives as `pull_requests[].pr_url`).
+The Devin client uses the v3 organization API to create sessions, poll them, and send a follow-up message after a check failure. The worker reads the PR URL from the session response.
 
-## Devin API usage (v3)
+Other trigger sources would need new handlers. Automatically repairing failed Dependabot PRs is an idea described in the code, not an implemented feature.
 
-- Create session: `POST /v3/organizations/{org_id}/sessions`
-- Poll status: `GET /v3/organizations/{org_id}/sessions/{id}`
-- Bounded CI repair: `POST /v3/organizations/{org_id}/sessions/{id}/messages`
-- Concurrency cap (default 2) limits concurrent session *starts*, never polling.
+## Current limits
 
-## Design decisions
-
-- **Human-merge boundary.** The system never auto-merges. `checks_passed` pings
-  on-call; a person merges. This matters for security-sensitive changes.
-- **Simulated CI for the demo.** Apache Superset's PR CI is heavy/slow and fork
-  PRs need maintainer approval before CI runs, so the demo drives the
-  `check_suite` success event locally (`scripts/simulate_ci.py`). Production uses
-  the real GitHub `check_suite` webhook. Every simulated validation is disclaimed
-  in the PR comment.
-- **One metrics source.** Slack, GitHub, the `/metrics` endpoint, and Superset all
-  read the same Postgres `jobs` table / `vw_job_metrics` view — metrics are never
-  computed twice.
+- **Check results are not matched to a specific PR.** The handler selects the latest job waiting for checks. Use one active demo job at a time; match by repository, PR, and commit before wider use.
+- **Session limits are incomplete.** The worker checks `CONCURRENCY_CAP`, but the webhook starts sessions directly. The setting does not enforce a system-wide cap.
+- **The spend guard uses recorded usage.** `DAILY_COST_CAP` blocks new work based on recorded usage for jobs created that day. It does not stop active sessions or guarantee a hard budget.
+- **Reporting endpoints are public.** Webhooks have signature checks; `/jobs` and `/metrics` have no authentication.
+- **Recovery is limited.** Failed API calls need reliable retries. Duplicate issues are checked by issue number, which is not enough for multiple repositories.
+- **Savings are estimates.** The dashboard and API share job data, but calculate metrics separately. See [metric assumptions](EVIDENCE.md#dashboard-figures).

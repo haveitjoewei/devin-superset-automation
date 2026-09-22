@@ -1,70 +1,106 @@
-# Dependency Auto-Fix Orchestrator
+# Run Devin Auto-Fix
 
-The app behind [Devin Auto-Fix](../README.md): a FastAPI webhook API + a polling
-worker that create and manage Devin sessions, tracking each dependency fix from a
-labeled issue to a merged PR. See [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md)
-for the design.
+This folder contains the app: a GitHub event receiver, a worker that checks Devin's progress, and a Postgres database. See the [project overview](../README.md) for the demo.
 
-## Stack
-- **FastAPI** (`api.py`) — GitHub webhook receiver
-- **Worker** (`worker.py`) — polls Devin sessions, advances job state
-- **Postgres** — job store + Superset data source (`vw_job_metrics` view)
-- **SlackReporter / GitHubReporter** — lifecycle status out
-- **Superset** — leadership dashboard
+## Start with Docker
 
-## Setup
+You need Docker Compose, Devin API credentials, and a GitHub token with access to the target repository.
 
-### 1. Environment
+From the repository root:
+
 ```bash
+cd dependency-remediation-orchestrator
 cp .env.example .env
 ```
-```env
-DEVIN_API_KEY=...           DEVIN_ORG_ID=...
-GITHUB_TOKEN=...            GITHUB_WEBHOOK_SECRET=...
-SLACK_BOT_TOKEN=xoxb-...    SLACK_CHANNEL_ID=...   ONCALL_SLACK_USER_ID=...
-DATABASE_URL=postgresql://<user>@localhost:5432/devin_jobs
-WORKER_POLL_INTERVAL=30     CONCURRENCY_CAP=2
+
+Fill in `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `GITHUB_TOKEN`, and `GITHUB_WEBHOOK_SECRET` in `.env`. For Slack updates, also set `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID`; `ONCALL_SLACK_USER_ID` chooses who gets notified when checks pass.
+
+```bash
+docker compose up --build
 ```
 
-### 2. Run
+This starts Postgres, the API at `http://localhost:8000`, and the worker.
+
+### Run without Docker
+
+Use Python 3.12 and an existing Postgres database. Set `DATABASE_URL` in `.env`, then run:
+
 ```bash
-docker compose up            # api + worker
-# or locally:
-python -m uvicorn api:app --host 0.0.0.0 --port 8000
+python -m pip install -r requirements.txt
+python -m uvicorn api:app --port 8000
+```
+
+In another terminal, from this folder:
+
+```bash
 python worker.py
 ```
 
-### 3. Dashboard (Superset)
-```bash
-python scripts/setup_superset.py     # prints connection + dataset setup steps
-```
-Point a Superset database connection at Postgres via `host.docker.internal`
-(Superset runs in Docker; the job DB is on the host), add a dataset on
-`vw_job_metrics`, and build the "Devin Auto-Fix — Effectiveness" dashboard.
+## Start a fix
 
-## Trigger a run
-```bash
-python scripts/simulate_issue.py <issue_number>   # replay a labeled-issue event
-python scripts/simulate_ci.py                      # simulate check_suite success
-python scripts/simulate_merge.py <pr_number>       # simulate PR merged
-```
-In production these come from real GitHub webhooks (`issues`, `check_suite`,
-`pull_request`). The simulate scripts exist because Superset's fork-PR CI needs
-maintainer approval — see the disclaimer in [../README.md](../README.md).
+Configure a GitHub webhook on the target repository:
 
-## Scripts
+- URL: your publicly reachable API address followed by `/webhook/github`
+- Content type: `application/json`
+- Secret: the same `GITHUB_WEBHOOK_SECRET` as `.env`
+- Events: Issues, Check suites, and Pull requests
+
+For local development, `ngrok http 8000` can provide the public address. Update the webhook if that address changes.
+
+Add `devin-fix` to an issue to start Devin. This creates a real session and uses Devin credits.
+
+### Replay events locally
+
+With Python dependencies installed and the GitHub CLI (`gh`) signed in, you can send events directly to the local API. Run these from this folder, one step at a time:
+
+```bash
+# Use an existing issue that already has the devin-fix label.
+python scripts/simulate_issue.py <issue_number> --repo owner/repo
+
+# Wait for a PR and the checks_running state, then simulate passing checks.
+python scripts/simulate_ci.py --repo owner/repo
+
+# Simulate a merge for that PR.
+python scripts/simulate_merge.py <pr_number> --repo owner/repo
+```
+
+These scripts default to `haveitjoewei/superset` if `--repo` is omitted. The issue replay starts real work; the other two commands only simulate results. They do not run tests or merge a PR. Use one active job at a time because check results currently apply to the latest waiting job.
+
+## Check progress
+
+| Where | What it shows |
+|---|---|
+| Slack and GitHub | Updates for each job |
+| `GET /jobs` | Jobs and their current states |
+| `GET /metrics` | Counts, timing, and estimated savings |
+| `GET /health` | Whether the API responds |
+
+For a Superset dashboard, connect Superset to this app's Postgres database and create a dataset from `vw_job_metrics`. If Superset runs in Docker on your Mac and Postgres uses the published host port, use `host.docker.internal:5432` as the database address. The API creates the view on startup; build the dashboard charts in Superset.
+
+Savings figures use assumptions. See [metric limits](../docs/EVIDENCE.md#dashboard-figures).
+
+## Other scripts
+
 | Script | Purpose |
 |---|---|
-| `scripts/detect_blocked_upgrades.py` | scan requirements/*.in for blocked upgrades, open issues for approval (`--dry-run` to preview) |
-| `scripts/seed_demo_data.py` | seed demo jobs so the dashboard renders |
-| `scripts/migrate_to_postgres.py` | migrate an old SQLite job store to Postgres |
-| `scripts/setup_superset.py` | print Superset connection/dataset setup steps |
-| `scripts/export_metrics_csv.py` | export metrics to CSV |
-| `scripts/simulate_*.py` | replay GitHub events against the local API |
-| `scripts/trigger-demo-ci.sh` | trigger the bounded-repair demo scenarios |
+| `scripts/detect_blocked_upgrades.py` | Find blocked upgrades and open issues; use `--dry-run` to preview |
+| `scripts/seed_demo_data.py` | Add sample jobs for the dashboard |
+| `scripts/export_metrics_csv.py` | Export the older SQLite metrics view to CSV |
+| `scripts/migrate_to_postgres.py` | Move an older SQLite job store to Postgres |
 
-## Endpoints
-- `POST /webhook/github` — issues / check_suite / pull_request events
-- `GET /metrics` — live metrics JSON
-- `GET /jobs` — job list
-- `GET /health`
+`scripts/setup_superset.py` still targets the old SQLite database. Use the Postgres steps above instead.
+
+## Run tests
+
+From this folder:
+
+```bash
+python -m pip install pytest
+python -m pytest tests -q
+```
+
+Run the separate demo check from the repository root:
+
+```bash
+python -m pytest tests/test_demo_ci.py -q
+```

@@ -1,56 +1,39 @@
-# Verifying the fixes
+# How the example fixes were checked
 
-The point of this system is *verified* remediation — a green check from Devin is not a
-merge signal. Below is how each remediated PR was independently verified (the failure
-reproduced, the fix run, the result scrutinised), and what I'd still push back on.
-All verification is **local**: Apache Superset's fork CI needs maintainer approval, so
-the repository's CI is not the proof here — a local run is. PRs stay open until a human
-reviews and merges.
+These notes record local checks performed for the demo. They are not new test results from this documentation update. Superset's fork checks require maintainer approval, and simulated check events are not test evidence. A person still needs to review each fix before merging.
 
-## paramiko 4.x — PR #37 (`superset/extensions/ssh.py`)
+## paramiko 4.x — [PR #37](https://github.com/haveitjoewei/superset/pull/37)
 
-**What Devin changed.** paramiko 4.0 removed `DSSKey`, which `sshtunnel` (Superset's
-SSH-tunnel dependency) still references, so every tunnel raised `AttributeError`. Devin
-raised the cap to `<5.0` and added a **conditional compatibility shim**: if paramiko
-lacks `DSSKey`, inject a `_RemovedDSSKey` stand-in that **raises `SSHException` on any
-DSA-key use** — it restores the attribute `sshtunnel` needs without restoring DSA
-support. No application logic changed; it added a unit test.
+**Problem:** paramiko 4 removed `DSSKey`, but Superset's SSH-tunnel library still expects it. Creating a tunnel could raise `AttributeError`.
 
-**Is shimming a third-party's removed API acceptable, or a hack?** That's the question a
-reviewer should ask, so I checked:
+**Fix:** Devin allowed paramiko versions below 5 and added a compatibility workaround in `superset/extensions/ssh.py`. The replacement `DSSKey` lets the older library load but raises `SSHException` if a DSA key is used. It does not restore DSA support.
 
-- **Is a real fix available?** `sshtunnel`'s latest is **0.4.0, from January 2021** —
-  unmaintained, no upper paramiko bound, no paramiko-4 release. The shim is the only
-  path, not laziness.
-- **Reproduce the failure** (paramiko 4, no shim): `hasattr(paramiko, "DSSKey")` is
-  `False`; `sshtunnel` then raises `AttributeError`.
-- **Confirm the fix**: on the branch, `paramiko.DSSKey` resolves to `_RemovedDSSKey` and
-  the tunnel machinery imports.
-- **No security regression**: `paramiko.DSSKey()` **raises `SSHException`** — DSA keys
-  are rejected, not silently accepted.
-- **Tests**: `pytest tests/unit_tests/extensions/ssh_test.py`.
+The recorded local checks found:
 
-**What I'd still push back on:** verify the shim module is imported *before* `sshtunnel`
-builds its key table in every entry point (web, celery, CLI); note the DSA-rejection as
-a behavior change in the release notes; and flag in the PR that `sshtunnel` is abandoned,
-with a plan to fork or replace it so the shim isn't permanent.
+- Without the workaround, paramiko 4 has no `DSSKey` and the tunnel library fails.
+- With it, the tunnel code imports.
+- Trying to use the replacement key raises `SSHException`.
 
-## apispec 6.10 — PR #29 (`tests/unit_tests/databases/api_test.py`)
+Test command, run in the Superset checkout on the fix branch:
 
-**What Devin changed.** No application source — it unpinned apispec, regenerated
-`docs/static/resources/openapi.json`, and updated a **test expectation**: apispec 6.10
-now emits `additionalProperties` in the serialized JSON schema, so the expected dict
-gained `"additionalProperties": False`.
+```bash
+pytest tests/unit_tests/extensions/ssh_test.py
+```
 
-**The question: did Devin just change the test to make it green?** Verified it didn't:
+**Still needs review:** check import order in the web app, background workers, and command-line tools. Document that DSA keys are rejected, and consider replacing or updating the older tunnel library rather than keeping the workaround indefinitely.
 
-- On apispec 6.10 with the **old** assertion the test fails (actual output now includes
-  `additionalProperties`); with Devin's updated assertion it passes.
-- The new expected value is **genuine apispec-6.10 output** (the app generates it; the
-  test tracks it) — not a value picked to go green. The 498-line `openapi.json` diff is
-  the mechanical consequence of the bump, confirmed, not unrelated churn.
-- `pytest tests/unit_tests/databases/api_test.py`.
+## apispec 6.10 — [PR #29](https://github.com/haveitjoewei/superset/pull/29)
 
-**What I'd push back on:** the PR should call out the `openapi.json` regeneration
-explicitly, and add a one-line comment on *why* the expected schema changed so the next
-reviewer doesn't re-litigate it.
+**Problem:** the newer apispec version adds `additionalProperties` to generated API schemas, so an existing test expected the wrong output.
+
+**Fix:** Devin removed the version restriction, regenerated `docs/static/resources/openapi.json`, and added `"additionalProperties": False` to the expected test result. Application source code did not change.
+
+The recorded local checks confirmed that the old assertion failed on the new output and the updated assertion passed. The generated API file changed along with the library version.
+
+Test command, run in the Superset checkout on the fix branch:
+
+```bash
+pytest tests/unit_tests/databases/api_test.py
+```
+
+**Still needs review:** explain the generated API-file changes in the PR and confirm that the new schema matches the intended API behavior.
