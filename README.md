@@ -3,18 +3,17 @@
 [![CI](https://github.com/haveitjoewei/devin-superset-automation/actions/workflows/ci.yml/badge.svg)](https://github.com/haveitjoewei/devin-superset-automation/actions/workflows/ci.yml)
 
 Event-driven automation that uses the [Devin API](https://docs.devin.ai/api-reference/overview)
-to do the engineering work dependency bots leave undone: when a dependency upgrade
+to handle blocked dependency upgrades. When a dependency upgrade
 breaks the build, Devin investigates, fixes the code and tests, and opens a
-validated PR — triggered by a GitHub event, tracked to a merge, and reported to
-Slack and a Superset dashboard.
+validated PR. This entire flow is triggered by a GitHub event, and reported to
+Slack and a Superset analytics dashboard.
 
 Target repository: [apache/superset](https://github.com/apache/superset) (via a fork).
 
 ![Architecture](docs/images/architecture.png)
 
-*A nightly job files blocked-upgrade issues; a human approves by labeling; the
-orchestrator (FastAPI API → trigger adapter → worker, backed by Postgres) drives a
-Devin session, reports to Slack + GitHub, and a dashboard reads job state. Detail in
+*A nightly job files blocked-upgrade issues; a human approves by labeling the issue with `devin-fix`; the
+orchestrator starts a Devin session, reports to Slack + GitHub, and a dashboard reads job state. Detail in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).*
 
 ## Submission artifacts
