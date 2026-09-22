@@ -1,9 +1,7 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker
 from models import Base
-from config import get_settings
-
-settings = get_settings()
+from config import settings
 
 # Use PostgreSQL for production
 engine = create_engine(settings.DATABASE_URL, echo=False)

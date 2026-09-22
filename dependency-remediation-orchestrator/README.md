@@ -99,10 +99,8 @@ Savings figures use assumptions. See [metric limits](../docs/EVIDENCE.md#dashboa
 |---|---|
 | `scripts/detect_blocked_upgrades.py` | Find blocked upgrades and open issues; use `--dry-run` to preview |
 | `scripts/seed_demo_data.py` | Add sample jobs for the dashboard |
-| `scripts/export_metrics_csv.py` | Export the older SQLite metrics view to CSV |
-| `scripts/migrate_to_postgres.py` | Move an older SQLite job store to Postgres |
 
-`scripts/setup_superset.py` still targets the old SQLite database. Use the Postgres steps above instead.
+The old SQLite migration is retained in [`scripts/legacy/`](scripts/legacy/migrate_to_postgres.py) for reference. It reads `scripts/jobs.db` and uses a hard-coded local Postgres connection; it is not part of the current setup.
 
 ## Run tests
 

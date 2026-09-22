@@ -76,4 +76,4 @@ These are separate from the app's response to a target PR:
 
 The demo test fails while either `TEMP_FAILURE_FIRST` or `TEMP_FAILURE_ALWAYS` appears in the root README. Both behave the same way. Remove the marker from the file and push the change to make that test pass; editing the PR description does not remove it.
 
-A failing demo check only reaches the app if this repository's webhook is configured. It does not create a tracked job by itself. The older `scripts/trigger-demo-ci.sh` helper has outdated instructions; use the steps above.
+A failing demo check only reaches the app if this repository's webhook is configured. It does not create a tracked job by itself.

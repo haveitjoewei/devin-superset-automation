@@ -1,15 +1,10 @@
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import sqlite3
 import psycopg2
-from psycopg2.extras import RealDictCursor
-from datetime import datetime
 from pathlib import Path
 
 def migrate_to_postgres():
     """Migrate SQLite data to PostgreSQL"""
-    sqlite_path = Path(__file__).parent / "jobs.db"
+    sqlite_path = Path(__file__).resolve().parents[1] / "jobs.db"
     
     # Connect to SQLite
     sqlite_conn = sqlite3.connect(str(sqlite_path))

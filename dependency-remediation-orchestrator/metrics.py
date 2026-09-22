@@ -1,4 +1,4 @@
-from sqlalchemy import func, text
+from sqlalchemy import func
 from datetime import datetime, timedelta, timezone
 from database import SessionLocal
 from models import Job

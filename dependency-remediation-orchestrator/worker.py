@@ -9,14 +9,12 @@ from config import settings
 from database import get_session, init_db
 from models import Job
 from devin_client import DevinClient
-from github_client import GitHubClient
 from reporters import SlackReporter, GitHubReporter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("worker")
 
 devin_client = DevinClient()
-github_client = GitHubClient()
 slack_reporter = SlackReporter()
 github_reporter = GitHubReporter()
 
