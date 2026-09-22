@@ -39,7 +39,7 @@ The app also handles CI (continuous integration): the automated tests and build 
 - **Checks fail:** ask the same Devin session to repair the failure once.
 - **Checks fail again:** stop requesting repairs and notify a person through GitHub and Slack, if configured.
 
-This behavior is implemented. The demo can exercise it with simulated results; real results arrive through a GitHub webhook. It currently selects the latest waiting job rather than matching the result to a specific PR, so it is limited to a controlled demo. See [supported CI behavior and how to try it](docs/DEMO_CI_SCENARIOS.md).
+This behavior is implemented. The demo can exercise it with simulated results; real results arrive through a GitHub webhook. Each check result is matched to the specific job by the PR it belongs to, so concurrent jobs stay separate. See [supported CI behavior and how to try it](docs/DEMO_CI_SCENARIOS.md).
 
 ## What the demo proves
 
@@ -55,4 +55,4 @@ The business case estimates about 450 upgrades a year could need help, based on 
 - [App structure and job states](docs/ARCHITECTURE.md)
 - [CI checks, automatic repair, and demo steps](docs/DEMO_CI_SCENARIOS.md)
 
-This is a working demo. Before using it in production, fix how check results are matched to jobs, enforce limits on new sessions, protect the reporting endpoints, and add reliable retries. [Architecture notes](docs/ARCHITECTURE.md#current-limits) explain these limits.
+This is a working demo. Before using it in production, enforce limits on new sessions, protect the reporting endpoints, and add reliable retries. [Architecture notes](docs/ARCHITECTURE.md#current-limits) explain these limits.

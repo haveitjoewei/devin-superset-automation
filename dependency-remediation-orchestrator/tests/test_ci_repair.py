@@ -44,7 +44,8 @@ def test_ci_results_request_at_most_one_repair(monkeypatch, results, final_state
         await github.route("check_suite", {
             "action": "completed",
             "repository": {"full_name": "example/repo"},
-            "check_suite": {"conclusion": conclusion},
+            # a real check_suite carries the PR(s) it was built for; the job owns PR #2
+            "check_suite": {"conclusion": conclusion, "pull_requests": [{"number": 2}]},
         }, tasks)
         await tasks()
 

@@ -60,13 +60,13 @@ With Python dependencies installed and the GitHub CLI (`gh`) signed in, you can 
 python scripts/simulate_issue.py <issue_number> --repo owner/repo
 
 # Wait for a PR and the checks_running state, then simulate passing checks.
-python scripts/simulate_ci.py --repo owner/repo
+python scripts/simulate_ci.py <pr_number> --repo owner/repo
 
 # Simulate a merge for that PR.
 python scripts/simulate_merge.py <pr_number> --repo owner/repo
 ```
 
-These scripts default to `haveitjoewei/superset` if `--repo` is omitted. The issue replay starts real work; the other two commands only simulate results. They do not run tests or merge a PR. Use one active job at a time because check results currently apply to the latest waiting job.
+These scripts default to `haveitjoewei/superset` if `--repo` is omitted. The issue replay starts real work; the other two commands only simulate results. They do not run tests or merge a PR. Check results are matched to the job by PR number, so multiple jobs can run at once (pass the PR number to `simulate_ci.py`).
 
 ## Check progress
 

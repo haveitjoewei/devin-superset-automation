@@ -54,16 +54,32 @@ async def handle_issue_event(event_data: dict, background_tasks):
 
 
 async def handle_check_suite_event(event_data: dict, background_tasks):
-    check_suite = event_data.get("check_suite")
-    repository = event_data.get("repository")
+    check_suite = event_data.get("check_suite") or {}
+    # Resolve the result to a SPECIFIC job by the PR(s) the check suite belongs to.
+    # (A check_suite carries the PRs built from its head commit.) Matching by PR
+    # number — not "the latest waiting job" — is what makes concurrent jobs safe.
+    pr_numbers = [pr["number"] for pr in check_suite.get("pull_requests", []) if pr.get("number")]
     if check_suite.get("conclusion") == "failure":
-        background_tasks.add_task(handle_ci_failure, check_suite, repository)
+        background_tasks.add_task(handle_ci_failure, check_suite, pr_numbers)
     elif check_suite.get("conclusion") == "success":
-        background_tasks.add_task(handle_ci_success, check_suite, repository)
+        background_tasks.add_task(handle_ci_success, check_suite, pr_numbers)
     # Production trigger (fully automated, no human label): when a Dependabot-authored
     # PR's checks FAIL and no job owns it yet, auto-create a job here and hand the
     # failing upgrade to Devin. That turns the "dead lane" catch fully hands-off. The
     # demo uses the labeled-issue on-ramp instead (a deliberate human-approval gate).
+
+
+def _job_for_pr(session, pr_numbers: list, state: str = "checks_running"):
+    """Resolve a check_suite result to the specific job it belongs to, by PR number.
+
+    Returns None when the event carries no PR reference or no job owns those PRs —
+    so an unrelated check_suite never advances someone else's job.
+    """
+    if not pr_numbers:
+        return None
+    return session.execute(
+        select(Job).where(Job.state == state, Job.pr_number.in_(pr_numbers))
+    ).scalars().first()
 
 
 async def handle_pull_request_event(event_data: dict, background_tasks):
@@ -120,13 +136,11 @@ async def create_remediation_job(issue: dict, repository: dict):
         )
 
 
-async def handle_ci_failure(check_suite: dict, repository: dict):
+async def handle_ci_failure(check_suite: dict, pr_numbers: list):
     """Bounded CI repair: first failure -> ask Devin to fix and wait for the re-run;
     a second failure -> escalate to a human. We never fail on the first attempt."""
     with next(get_session()) as session:
-        job = session.execute(
-            select(Job).where(Job.state == "checks_running").order_by(Job.created_at.desc())
-        ).scalars().first()
+        job = _job_for_pr(session, pr_numbers)
         if not job or not job.devin_session_id:
             return
 
@@ -154,15 +168,12 @@ async def handle_ci_failure(check_suite: dict, repository: dict):
             await github_reporter.report_state_transition(job, previous_state)
 
 
-async def handle_ci_success(check_suite: dict, repository: dict):
+async def handle_ci_success(check_suite: dict, pr_numbers: list):
     """Checks passed — ready for human review (never auto-merged)."""
     with next(get_session()) as session:
-        jobs = session.execute(
-            select(Job).where(Job.state == "checks_running").order_by(Job.created_at.desc())
-        ).scalars().all()
-        if not jobs:
+        job = _job_for_pr(session, pr_numbers)
+        if not job:
             return
-        job = jobs[0]
         previous_state = job.state
         job.state = "checks_passed"
         job.validated_at = datetime.now(timezone.utc)

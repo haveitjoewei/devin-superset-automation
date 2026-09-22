@@ -42,7 +42,7 @@ Use the [setup guide](../dependency-remediation-orchestrator/README.md) to start
 2. From `dependency-remediation-orchestrator/`, send the first failure:
 
    ```bash
-   python scripts/simulate_ci.py --repo owner/repo --conclusion failure
+   python scripts/simulate_ci.py <pr_number> --repo owner/repo --conclusion failure
    ```
 
    Check the Devin session for the repair request. The job should remain `checks_running`.
@@ -51,14 +51,14 @@ Use the [setup guide](../dependency-remediation-orchestrator/README.md) to start
 
    ```bash
    # Show a successful repair outcome.
-   python scripts/simulate_ci.py --repo owner/repo --conclusion success
+   python scripts/simulate_ci.py <pr_number> --repo owner/repo --conclusion success
    ```
 
    Or:
 
    ```bash
    # Show a second failure that needs a person.
-   python scripts/simulate_ci.py --repo owner/repo --conclusion failure
+   python scripts/simulate_ci.py <pr_number> --repo owner/repo --conclusion failure
    ```
 
 4. Check `/jobs` and the GitHub or Slack update. Expect `checks_passed` for success or `checks_failed` for another failure.

@@ -55,7 +55,7 @@ Other trigger sources would need new handlers. Automatically repairing failed De
 
 ## Current limits
 
-- **Check results are not matched to a specific PR.** The handler selects the latest job waiting for checks. Use one active demo job at a time; match by repository, PR, and commit before wider use.
+- **Check results match by PR number, not commit SHA.** A `check_suite` result resolves to the job that owns its PR, so concurrent jobs stay separate; matching on the head commit SHA as well would harden it against a re-run of an older commit.
 - **Session limits are incomplete.** The worker checks `CONCURRENCY_CAP`, but the webhook starts sessions directly. The setting does not enforce a system-wide cap.
 - **The spend guard uses recorded usage.** `DAILY_COST_CAP` blocks new work based on recorded usage for jobs created that day. It does not stop active sessions or guarantee a hard budget.
 - **Reporting endpoints are public.** Webhooks have signature checks; `/jobs` and `/metrics` have no authentication.
