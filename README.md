@@ -15,9 +15,20 @@ This project gives that repair work to Devin. A person chooses an upgrade to fix
 
 ## How it works
 
-![Architecture](docs/images/architecture.png)
+```mermaid
+flowchart LR
+  A[Requirements scan] --> B[GitHub issue]
+  B --> C[Person approves with label]
+  C --> D[Postgres job queue]
+  D --> E[Worker starts Devin]
+  E --> F[Code, tests and pull request]
+  F --> G[Verify configured checks on current commit]
+  G --> H[GitHub and Slack updates]
+  G --> I[Person reviews and merges]
+  D --> J[Superset reporting]
+```
 
-*How GitHub, Devin, Slack, and Superset connect. See the [architecture guide](docs/ARCHITECTURE.md) for details.*
+See the [architecture guide](docs/ARCHITECTURE.md) for details.
 
 1. A nightly scan looks for dependency updates blocked by comments in Superset's requirements files and opens issues.
 2. A person adds the `devin-fix` label to approve the work.
@@ -25,7 +36,7 @@ This project gives that repair work to Devin. A person chooses an upgrade to fix
 4. The app tracks automated checks. If they fail, it asks Devin to try one repair.
 5. Slack and GitHub show progress. A person reviews and merges the fix.
 
-A Superset dashboard shows job results, timing, and estimated effort saved.
+A Superset dashboard can show job results, timing, and estimated effort saved. **The screenshots below are from the original demo: they include sample data and simulated results. Their savings figures are not measured outcomes.**
 
 | Dashboard | Slack updates | Pull request |
 |---|---|---|
@@ -39,13 +50,13 @@ The app also handles CI (continuous integration): the automated tests and build 
 - **Checks fail:** ask the same Devin session to repair the failure once.
 - **Checks fail again:** stop requesting repairs and notify a person through GitHub and Slack, if configured.
 
-This behavior is implemented. The demo can exercise it with simulated results; real results arrive through a GitHub webhook. Each check result is matched to the specific job by the PR it belongs to, so concurrent jobs stay separate. See [supported CI behavior and how to try it](docs/DEMO_CI_SCENARIOS.md).
+This behavior is implemented. Set `TARGET_REPO` and `REQUIRED_CHECKS` before using real CI. The app reads those checks from GitHub for the PR’s current commit; an unrelated green check cannot approve the fix. Repeated failures on the same commit do not consume another repair attempt. Simulation is opt-in and excluded from live metrics. See [supported CI behavior and how to try it](docs/DEMO_CI_SCENARIOS.md).
 
 ## What the demo proves
 
-The demo connects a GitHub issue to a Devin session and tracks the resulting fix. The example fixes were tested locally, as described in the [verification notes](docs/VERIFICATION.md).
+The demo connects a GitHub issue to a Devin session and tracks the resulting fix. **[Paramiko #37](https://github.com/haveitjoewei/superset/pull/37) is merged**, with a compatibility fix, regression test, and release note. [Apispec #29](https://github.com/haveitjoewei/superset/pull/29) updates the dependency and schema expectations; it remains open. See the dated [verification notes](docs/VERIFICATION.md) for checks and remaining limits.
 
-**The demo simulates GitHub's automated-check result.** Superset's fork checks need maintainer approval. A simulated success shows the tracking workflow; it does not prove the code passes GitHub's tests. The merge simulator likewise records a merge without merging the pull request.
+**The original walkthrough simulates GitHub's automated-check result.** Real checks have since run on the example PRs. A simulated success shows the tracking workflow; it does not prove the code passes GitHub's tests. The merge simulator likewise records a merge without merging the pull request.
 
 The business case estimates about 450 upgrades a year could need help, based on a Superset PR sample. At an assumed three hours each, that is about 1,350 hours of work. These are estimates of potential engineering time, not demonstrated savings. See [the evidence and assumptions](docs/EVIDENCE.md).
 
@@ -55,4 +66,4 @@ The business case estimates about 450 upgrades a year could need help, based on 
 - [App structure and job states](docs/ARCHITECTURE.md)
 - [CI checks, automatic repair, and demo steps](docs/DEMO_CI_SCENARIOS.md)
 
-This is a working demo. Before using it in production, enforce limits on new sessions, protect the reporting endpoints, and add reliable retries. [Architecture notes](docs/ARCHITECTURE.md#current-limits) explain these limits.
+This is a working demo. Before using it in production, protect the reporting endpoints, agree on required checks, and add durable notification delivery. The usage guard is not a hard billing limit. [Architecture notes](docs/ARCHITECTURE.md#current-limits) explain these limits.

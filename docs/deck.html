@@ -137,7 +137,7 @@
   <section class="slide on">
     <div class="eyebrow"><b>01</b> · The problem</div>
     <h1>When an update breaks the app, <span class="g">someone has to fix it</span>.</h1>
-    <p class="lede">Update bots propose new library versions. This project uses Devin to repair the code when an update breaks Apache Superset.</p>
+    <p class="lede">Update bots propose new library versions. This project uses Devin to repair the code when an update breaks Apache Superset. <a href="https://github.com/haveitjoewei/superset/pull/37">Paramiko #37 is merged</a>; <a href="https://github.com/haveitjoewei/superset/pull/29">apispec #29 is open</a>.</p>
     <div class="stats">
       <div class="stat"><div class="n">2,600+</div><div class="l">update requests in a year</div><div class="e">reported Superset analysis</div></div>
       <div class="stat"><div class="n">~17%</div><div class="l">may need manual work</div><div class="e">17 of 100 sampled requests</div></div>
@@ -208,7 +208,7 @@
 
         <rect class="dg-box" x="285" y="175" width="160" height="58" rx="9"/>
         <text class="dg-t" x="365" y="201" text-anchor="middle">worker</text>
-        <text class="dg-s" x="365" y="217" text-anchor="middle">check progress</text>
+        <text class="dg-s" x="365" y="217" text-anchor="middle">start jobs · check progress</text>
 
         <rect class="dg-box" x="470" y="175" width="170" height="58" rx="9"/>
         <text class="dg-t" x="555" y="201" text-anchor="middle">reporters</text>
@@ -237,9 +237,9 @@
         <line class="dg-a" x1="445" y1="109" x2="466" y2="109" marker-end="url(#ah)"/>
         <text class="dg-l" x="455" y="102" text-anchor="middle">route</text>
         <line class="dg-ak" x1="640" y1="101" x2="697" y2="100" marker-end="url(#ahk)"/>
-        <text class="dg-lk" x="669" y="93" text-anchor="middle">session</text>
+        <text class="dg-lk" x="669" y="93" text-anchor="middle">repair</text>
         <polyline class="dg-ak" points="445,200 678,200 678,124 697,124" marker-end="url(#ahk)"/>
-        <text class="dg-lk" x="548" y="193" text-anchor="middle">poll status</text>
+        <text class="dg-lk" x="548" y="193" text-anchor="middle">start / poll</text>
         <line class="dg-a" x1="380" y1="233" x2="406" y2="284" marker-end="url(#ah)"/>
         <text class="dg-l" x="350" y="262" text-anchor="end">advance</text>
         <line class="dg-a" x1="545" y1="138" x2="507" y2="284" marker-end="url(#ah)"/>
@@ -251,7 +251,7 @@
         <line class="dg-i" x1="555" y1="138" x2="555" y2="173" marker-end="url(#ah)"/>
         <line class="dg-i" x1="448" y1="212" x2="466" y2="212" marker-end="url(#ah)"/>
       </svg>
-      <figcaption>GitHub events start repairs and update their status. The worker checks Devin’s progress. Postgres stores the results for Slack, GitHub, and the Superset dashboard.</figcaption>
+      <figcaption>GitHub events queue approved work and update its status. The worker starts Devin sessions and verifies configured checks on the current PR commit. Postgres stores the results for Slack, GitHub, and the Superset dashboard.</figcaption>
     </figure>
     <p class="foot">Devin writes the fix. The app connects the services and records what happened. People approve the work and the merge.</p>
   </section>
@@ -281,7 +281,7 @@
       <div class="m"><div class="k">Business</div><div class="t">Time to merge</div><div class="s">From approval through human review to the merged change.</div></div>
       <div class="m"><div class="k">Reliability</div><div class="t">Fixes without manual edits</div><div class="s">Share of attempted fixes that pass checks without a person editing the code.</div></div>
     </div>
-    <p class="foot">These are proposed pilot measures. The demo dashboard includes sample data; saved hours are estimates and demo check results are simulated.</p>
+    <p class="foot">These are proposed pilot measures. The original dashboard screenshots include sample data and simulated results. Current live metrics exclude them and report ACUs, not dollar savings.</p>
   </section>
 
   <!-- 5 -->

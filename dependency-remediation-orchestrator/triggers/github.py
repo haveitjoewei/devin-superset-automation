@@ -1,14 +1,7 @@
-"""GitHub trigger adapter.
-
-Maps GitHub webhook events (issues / check_suite / pull_request) onto the job
-engine: start a fix, run a bounded CI repair, mark checks passed, mark merged.
-
-To add another trigger source (Linear, Sentry, a scanner), add a sibling module
-that normalizes its events into the same job actions — the Devin session logic
-and reporters stay shared. `api.py` only routes; it knows nothing GitHub-specific.
-"""
+"""Receive approved issues and reconcile checks against GitHub's current PR state."""
+import logging
 from datetime import datetime, timezone
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from config import settings
@@ -18,185 +11,154 @@ from devin_client import DevinClient
 from github_client import GitHubClient
 from reporters import SlackReporter, GitHubReporter
 
-
-def _daily_spend_exceeded(session) -> bool:
-    """True if today's Devin spend has hit the configured cap (0 disables)."""
-    if not settings.DAILY_COST_CAP:
-        return False
-    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    spent = session.execute(
-        select(func.coalesce(func.sum(Job.cost), 0.0)).where(Job.created_at >= day_start)
-    ).scalar() or 0.0
-    return spent >= settings.DAILY_COST_CAP
-
+logger = logging.getLogger(__name__)
 devin_client = DevinClient()
 github_client = GitHubClient()
 slack_reporter = SlackReporter()
 github_reporter = GitHubReporter()
 
 
+async def report(job, previous_state):
+    for reporter in (slack_reporter, github_reporter):
+        try:
+            await reporter.report_state_transition(job, previous_state)
+        except Exception:
+            logger.exception("Notification failed for job %s; workflow state preserved", job.id)
+
+
 async def route(event_type: str, event_data: dict, background_tasks):
-    """Dispatch a verified GitHub webhook to the right handler."""
+    repository = event_data.get("repository") or {}
+    if repository.get("full_name", "").lower() != settings.TARGET_REPO.lower():
+        return
+    simulated = event_data.get("simulated") is True
+    if simulated and not settings.ALLOW_SIMULATED_EVENTS:
+        return
     if event_type == "issues":
-        await handle_issue_event(event_data, background_tasks)
-    elif event_type == "check_suite":
-        await handle_check_suite_event(event_data, background_tasks)
+        issue = event_data.get("issue") or {}
+        if event_data.get("action") == "labeled" and "devin-fix" in [l["name"] for l in issue.get("labels", [])]:
+            # Persist before acknowledging the webhook; the worker starts paid work.
+            await create_remediation_job(issue, repository)
+    elif event_type == "check_suite" and event_data.get("action") == "completed":
+        suite = event_data.get("check_suite") or {}
+        for pr in suite.get("pull_requests", []):
+            if pr.get("number"):
+                background_tasks.add_task(reconcile_ci, pr["number"], suite if simulated else None)
     elif event_type == "pull_request":
-        await handle_pull_request_event(event_data, background_tasks)
+        pr = event_data.get("pull_request") or {}
+        if event_data.get("action") == "closed" and pr.get("merged"):
+            background_tasks.add_task(handle_pr_merged, pr, simulated)
+        elif event_data.get("action") in ("synchronize", "reopened"):
+            background_tasks.add_task(reconcile_ci, pr["number"])
 
 
-async def handle_issue_event(event_data: dict, background_tasks):
-    action = event_data.get("action")
-    issue = event_data.get("issue")
-    repository = event_data.get("repository")
-    if action == "labeled" and "devin-fix" in [l["name"] for l in issue.get("labels", [])]:
-        background_tasks.add_task(create_remediation_job, issue, repository)
-
-
-async def handle_check_suite_event(event_data: dict, background_tasks):
-    check_suite = event_data.get("check_suite") or {}
-    # Resolve the result to a SPECIFIC job by the PR(s) the check suite belongs to.
-    # (A check_suite carries the PRs built from its head commit.) Matching by PR
-    # number — not "the latest waiting job" — is what makes concurrent jobs safe.
-    pr_numbers = [pr["number"] for pr in check_suite.get("pull_requests", []) if pr.get("number")]
-    if check_suite.get("conclusion") == "failure":
-        background_tasks.add_task(handle_ci_failure, check_suite, pr_numbers)
-    elif check_suite.get("conclusion") == "success":
-        background_tasks.add_task(handle_ci_success, check_suite, pr_numbers)
-    # Production trigger (fully automated, no human label): when a Dependabot-authored
-    # PR's checks FAIL and no job owns it yet, auto-create a job here and hand the
-    # failing upgrade to Devin. That turns the "dead lane" catch fully hands-off. The
-    # demo uses the labeled-issue on-ramp instead (a deliberate human-approval gate).
-
-
-def _job_for_pr(session, pr_numbers: list, state: str = "checks_running"):
-    """Resolve a check_suite result to the specific job it belongs to, by PR number.
-
-    Returns None when the event carries no PR reference or no job owns those PRs —
-    so an unrelated check_suite never advances someone else's job.
-    """
+def _job_for_pr(session, pr_numbers: list):
     if not pr_numbers:
         return None
-    return session.execute(
-        select(Job).where(Job.state == state, Job.pr_number.in_(pr_numbers))
-    ).scalars().first()
-
-
-async def handle_pull_request_event(event_data: dict, background_tasks):
-    """PR merged — the true terminal success (human-gated, we never auto-merge)."""
-    if event_data.get("action") == "closed" and event_data.get("pull_request", {}).get("merged"):
-        background_tasks.add_task(handle_pr_merged, event_data["pull_request"])
+    return session.execute(select(Job).where(
+        Job.state.in_(["checks_running", "checks_passed", "checks_failed"]),
+        Job.pr_number.in_(pr_numbers),
+        Job.issue_url.startswith(f"https://github.com/{settings.TARGET_REPO}/issues/"),
+    ).with_for_update()).scalars().first()
 
 
 async def create_remediation_job(issue: dict, repository: dict):
-    """Create a job and start a Devin session for a labeled issue."""
+    if repository.get("full_name", "").lower() != settings.TARGET_REPO.lower():
+        return
     with next(get_session()) as session:
-        existing = session.execute(
-            select(Job).where(Job.issue_number == issue["number"])
-        ).scalar_one_or_none()
-        if existing:
+        if session.execute(select(Job).where(Job.issue_number == issue["number"])).scalar_one_or_none():
             return
-
-        # Cost guard: don't start new Devin work once the daily spend cap is hit.
-        if _daily_spend_exceeded(session):
-            await github_client.comment_on_issue(
-                repository["owner"]["login"], repository["name"], issue["number"],
-                "⏸️ Devin auto-fix paused: daily cost cap reached. Will resume next cycle.",
-            )
-            return
-
-        job = Job(
-            issue_number=issue["number"],
-            issue_url=issue["html_url"],
-            state="queued",
-            labeled_at=datetime.now(timezone.utc),
-        )
-        session.add(job)
+        session.add(Job(issue_number=issue["number"], issue_url=issue["html_url"],
+                        state="queued", labeled_at=datetime.now(timezone.utc)))
         try:
-            session.commit()  # unique(issue_number) makes this the atomic dedup point
+            session.commit()
         except IntegrityError:
-            session.rollback()  # a concurrent delivery won the race — nothing to do
-            return
-        session.refresh(job)
-
-        session_response = await devin_client.create_session(
-            prompt=build_remediation_prompt(issue, repository),
-            session_links=[issue["html_url"]],
-        )
-        job.devin_session_id = session_response.get("session_id")
-        job.state = "fixing"
-        job.updated_at = datetime.now(timezone.utc)
-        session.commit()
-
-        await slack_reporter.report_state_transition(job, None)
-        await github_client.comment_on_issue(
-            repository["owner"]["login"], repository["name"], issue["number"],
-            f"🤖 **Devin auto-fix started**\n\nDevin is working on this dependency "
-            f"upgrade. Session: {session_response.get('url')}",
-        )
+            session.rollback()
 
 
-async def handle_ci_failure(check_suite: dict, pr_numbers: list):
-    """Bounded CI repair: first failure -> ask Devin to fix and wait for the re-run;
-    a second failure -> escalate to a human. We never fail on the first attempt."""
+async def reconcile_ci(pr_number: int, simulated_suite=None):
     with next(get_session()) as session:
-        job = _job_for_pr(session, pr_numbers)
-        if not job or not job.devin_session_id:
+        observed = _job_for_pr(session, [pr_number])
+        if not observed:
+            return
+        observed_version = observed.updated_at
+        session.rollback()  # never hold a database lock across an HTTP request
+    if simulated_suite is not None:
+        if not settings.ALLOW_SIMULATED_EVENTS:
+            return
+        sha = simulated_suite.get("head_sha")
+        result = simulated_suite.get("conclusion")
+        if not sha or result not in ("success", "failure"):
+            return
+        details = f"Simulated {result}; no tests were run."
+    else:
+        try:
+            sha, result, details = await github_client.verification(settings.TARGET_REPO, pr_number)
+        except Exception:
+            logger.exception("Could not verify PR %s; retrying on the next worker poll", pr_number)
             return
 
-        details = check_suite.get("details_url")
-        if job.attempts < 1:
-            # First failure — request a bounded repair and STAY in checks_running so
-            # the next check_suite result (after Devin's new commit) is evaluated.
-            await devin_client.send_message(
-                job.devin_session_id,
-                f"CI failed for your changes ({check_suite.get('conclusion')}). "
-                f"Details: {details}. Please fix all failing checks.",
-            )
-            job.attempts += 1
-            job.notes = f"CI failed; requested bounded repair: {details}"
-            job.updated_at = datetime.now(timezone.utc)
-            session.commit()
-        else:
-            # Repair already attempted and CI still failing — escalate to on-call.
-            previous_state = job.state
-            job.state = "checks_failed"
-            job.notes = f"CI still failing after bounded repair: {details}"
-            job.updated_at = datetime.now(timezone.utc)
-            session.commit()
-            await slack_reporter.report_state_transition(job, previous_state)
-            await github_reporter.report_state_transition(job, previous_state)
-
-
-async def handle_ci_success(check_suite: dict, pr_numbers: list):
-    """Checks passed — ready for human review (never auto-merged)."""
     with next(get_session()) as session:
-        job = _job_for_pr(session, pr_numbers)
-        if not job:
+        job = _job_for_pr(session, [pr_number])
+        if not job or (job.is_simulated and simulated_suite is None):
             return
+        if job.updated_at != observed_version:
+            return  # another handler advanced this job while GitHub was being read
         previous_state = job.state
-        job.state = "checks_passed"
-        job.validated_at = datetime.now(timezone.utc)
-        job.effort_hours = 2.0  # estimated dev-hours saved per validated job
+        job.is_simulated = int(bool(job.is_simulated or simulated_suite is not None))
+        job.ci_head_sha = sha
+        job.updated_at = datetime.now(timezone.utc)
+        job.notes = details
+        if result == "success":
+            job.state = "checks_passed"
+            job.validated_at = job.validated_at or datetime.now(timezone.utc)
+            job.effort_hours = 2.0
+        elif result == "pending":
+            job.state = "checks_running"
+            job.validated_at = None
+        elif result == "failure":
+            job.validated_at = None
+            if job.ci_repair_sha == sha:
+                # Replayed failures and other suites on the same commit are one attempt.
+                job.state = "checks_running"
+                session.commit()
+                return
+            if job.attempts or not job.devin_session_id:
+                job.state = "checks_failed"
+            else:
+                job.attempts = 1
+                job.ci_repair_sha = sha
+                job.state = "checks_running"
+                job.notes = f"Repair requested for {sha}: {details}"
+                session.commit()  # reserve the repair before the external call
+                try:
+                    await devin_client.send_message(job.devin_session_id,
+                        f"CI failed on commit {sha}. {details}. Please fix the failing checks.")
+                except Exception:
+                    job.state = "needs_human"
+                    job.notes = "Repair request could not be confirmed. Check Devin before retrying."
+                    session.commit()
+                    await report(job, previous_state)
+                return
         job.updated_at = datetime.now(timezone.utc)
         session.commit()
-        await slack_reporter.report_state_transition(job, previous_state)
-        await github_reporter.report_state_transition(job, previous_state)
+        if job.state != previous_state:
+            await report(job, previous_state)
 
 
-async def handle_pr_merged(pr: dict):
-    """Mark the job merged once a human merges its PR."""
+async def handle_pr_merged(pr: dict, simulated=False):
+    if not simulated:
+        pr = await github_client.get(f"repos/{settings.TARGET_REPO}/pulls/{pr['number']}")
+        if not pr.get("merged"):
+            return
     with next(get_session()) as session:
-        job = session.execute(
-            select(Job).where(Job.pr_number == pr["number"])
-        ).scalar_one_or_none()
-        if job and job.state != "merged":
+        job = _job_for_pr(session, [pr["number"]])
+        if job:
             previous_state = job.state
             job.state = "merged"
+            job.is_simulated = int(bool(job.is_simulated or simulated))
             job.updated_at = datetime.now(timezone.utc)
             session.commit()
-            await slack_reporter.report_state_transition(job, previous_state)
-            await github_reporter.report_state_transition(job, previous_state)
+            await report(job, previous_state)
 
 
 def build_remediation_prompt(issue: dict, repository: dict) -> str:

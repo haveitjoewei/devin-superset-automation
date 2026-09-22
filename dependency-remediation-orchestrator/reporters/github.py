@@ -5,13 +5,6 @@ Mirrors SlackReporter so GitHub reflects the full lifecycle, not just "kicked of
 from github_client import GitHubClient
 from models import Job
 
-SIM_DISCLAIMER = (
-    "> ⚠️ **Disclaimer — validation simulated.** CI was marked green via a simulated "
-    "`check_suite` success event, not a full end-to-end GitHub CI run. This was a "
-    "deliberate demo decision because Apache Superset's PR CI is heavy/slow and fork "
-    "PRs typically require maintainer approval before CI will run. In production this "
-    "step is driven by the real `check_suite` webhook."
-)
 
 
 class GitHubReporter:
@@ -33,7 +26,14 @@ class GitHubReporter:
         if not owner:
             return
 
-        if job.state == "checks_running" and job.pr_number:
+        if getattr(job, "is_simulated", False):
+            await self.gh.comment_on_issue(owner, repo, job.issue_number,
+                f"**SIMULATION — not verified:** job state {job.state}. No tests or merge were performed by this event.")
+            return
+        if job.state == "fixing":
+            await self.gh.comment_on_issue(owner, repo, job.issue_number,
+                f"Devin started the fix: https://app.devin.ai/sessions/{job.devin_session_id}")
+        elif job.state == "checks_running" and job.pr_number:
             # PR opened — link it from the issue. (No PR-side comment: the PR
             # itself already announces it was opened.)
             await self.gh.comment_on_issue(
@@ -44,7 +44,7 @@ class GitHubReporter:
             body = (
                 f"✅ **Automated checks passed** (PR #{job.pr_number}).\n\n"
                 f"Ready for human review — **not auto-merged**.\n\n"
-                f"{SIM_DISCLAIMER}"
+                f"{job.notes or 'Verified configured checks on the current commit.'}"
             )
             target = job.pr_number or job.issue_number
             await self.gh.comment_on_issue(owner, repo, target, body)

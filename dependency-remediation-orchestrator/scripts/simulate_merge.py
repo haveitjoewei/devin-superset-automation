@@ -22,9 +22,11 @@ def main():
     ap.add_argument("--repo", default=DEFAULT_REPO)
     ap.add_argument("--api-url", default=os.environ.get("API_URL", "http://localhost:8000"))
     args = ap.parse_args()
+    if not settings.ALLOW_SIMULATED_EVENTS:
+        ap.error("Set ALLOW_SIMULATED_EVENTS=true in the local demo environment first.")
 
     repo = json.loads(subprocess.check_output(["gh", "api", f"repos/{args.repo}"]))
-    payload = {"action": "closed",
+    payload = {"simulated": True, "action": "closed",
                "pull_request": {"number": args.pr_number, "merged": True},
                "repository": repo}
     body = json.dumps(payload).encode()

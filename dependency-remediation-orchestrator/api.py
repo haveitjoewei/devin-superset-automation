@@ -32,8 +32,8 @@ def _create_metrics_view():
             CREATE VIEW vw_job_metrics AS
             SELECT
                 id, issue_number, issue_url, devin_session_id, pr_number, state,
-                attempts, created_at, updated_at, cost, effort_hours, validated_at,
-                labeled_at, slack_thread_ts, notes,
+                attempts, created_at, updated_at, CAST(NULL AS FLOAT) AS cost, effort_hours, validated_at,
+                labeled_at, slack_thread_ts, notes, acu_usage, ci_head_sha,
                 CASE
                     WHEN validated_at IS NOT NULL AND labeled_at IS NOT NULL
                     THEN EXTRACT(EPOCH FROM (validated_at - labeled_at)) / 3600
@@ -45,6 +45,9 @@ def _create_metrics_view():
                     ELSE 'dependency'
                 END AS stream
             FROM jobs
+            WHERE is_simulated = 0
+              AND (devin_session_id IS NULL OR devin_session_id NOT LIKE 'demo-%')
+              AND (state NOT IN ('checks_passed', 'merged') OR ci_head_sha IS NOT NULL)
         """))
         session.commit()
         print("Created vw_job_metrics view")
@@ -78,7 +81,9 @@ async def health_check():
 async def list_jobs(session: Session = Depends(get_session)):
     jobs = session.execute(select(Job)).scalars().all()
     return [
-        {"id": j.id, "issue_number": j.issue_number, "state": j.state, "created_at": j.created_at}
+        {"id": j.id, "issue_number": j.issue_number, "state": j.state, "created_at": j.created_at,
+         "pr_number": j.pr_number, "session_id": j.devin_session_id, "notes": j.notes,
+         "checked_commit": j.ci_head_sha, "simulated": bool(j.is_simulated)}
         for j in jobs
     ]
 

@@ -25,15 +25,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pr_number", type=int, help="the PR whose checks completed")
     ap.add_argument("--repo", default=DEFAULT_REPO)
+    ap.add_argument("--attempt", type=int, choices=[1, 2], default=1, help="use 2 for the repaired commit")
     ap.add_argument("--conclusion", default="success", choices=["success", "failure"])
     ap.add_argument("--api-url", default=os.environ.get("API_URL", "http://localhost:8000"))
     args = ap.parse_args()
+    if not settings.ALLOW_SIMULATED_EVENTS:
+        ap.error("Set ALLOW_SIMULATED_EVENTS=true in the local demo environment first.")
 
     repo = json.loads(subprocess.check_output(["gh", "api", f"repos/{args.repo}"]))
     payload = {
+        "simulated": True,
+        "action": "completed",
         "check_suite": {
             "conclusion": args.conclusion,
             "id": 0,
+            "head_sha": f"simulated-attempt-{args.attempt}",
             "pull_requests": [{"number": args.pr_number}],
         },
         "repository": repo,

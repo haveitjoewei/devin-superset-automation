@@ -28,11 +28,11 @@ def test_pr_opened_comments_issue_only_not_pr():
     assert target == 28
 
 
-def test_checks_passed_posts_disclaimer():
+def test_checks_passed_describes_real_verification():
     r = _reporter()
     asyncio.run(r.report_state_transition(_job(state="checks_passed"), "checks_running"))
     bodies = " ".join(str(c.args[3]) for c in r.gh.comment_on_issue.call_args_list)
-    assert "simulated" in bodies.lower()
+    assert "simulated" not in bodies.lower()
     assert "not auto-merged" in bodies.lower()
 
 
@@ -48,3 +48,11 @@ def test_needs_human_comment():
     asyncio.run(r.report_state_transition(_job(state="needs_human", notes="no PR"), "fixing"))
     body = r.gh.comment_on_issue.call_args.args[3]
     assert "needs attention" in body.lower()
+
+
+def test_simulated_merge_does_not_claim_shipped():
+    r = _reporter()
+    asyncio.run(r.report_state_transition(_job(state="merged", is_simulated=True), "checks_passed"))
+    body = r.gh.comment_on_issue.call_args.args[3]
+    assert "SIMULATION" in body
+    assert "shipped" not in body

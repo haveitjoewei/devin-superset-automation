@@ -1,15 +1,7 @@
-"""Seed a small, believable baseline so the dashboard looks alive — then run a REAL
-job in the demo to visibly move the needle.
+"""Seed reproducible sample jobs. Excluded from live metrics and worker polling.
 
-Generates ~10 jobs over the last few weeks (a young pipeline a leader would
-recognize), then during the demo you label a real issue (e.g. apispec) and watch
-the tiles update live. Only demo rows (devin_session_id LIKE 'demo-%') are cleared;
-real jobs are kept.
-
-  python scripts/seed_demo_data.py [count]      # default 10
-
-NOTE: representative demo data to show the dashboard's shape; production is live.
-`apispec` is intentionally excluded — reserve it for the live demo run.
+Run only against a separate demo database:
+    python scripts/seed_demo_data.py [count]
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,6 +56,7 @@ def seed_demo_data(count=10):
             cost = round(random.uniform(4, 18), 2)
 
             job = Job(
+                is_simulated=1,
                 issue_number=9000 + i,
                 issue_url=f"https://github.com/haveitjoewei/superset/issues/{9000 + i}",
                 devin_session_id=f"demo-{i:03d}",

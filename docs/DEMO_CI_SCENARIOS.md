@@ -1,79 +1,56 @@
 # CI checks and automatic repair
 
-This app can respond when a Devin pull request fails automated tests or build checks. Those checks are called **CI**, short for continuous integration. The app asks Devin to repair a failure once, then hands it back to a person if checks still fail.
+CI means the automated tests and build checks on a pull request. This app verifies an approved Devin fix, requests one repair if checks fail, and leaves merging to a person.
 
-This guide explains the implemented behavior, how to connect real check results, and how to demonstrate it without waiting for Superset's full test suite.
+## Real checks
 
-## What is supported
+Set `TARGET_REPO` to your fork and `REQUIRED_CHECKS` to the exact GitHub Actions check names that must pass, separated by commas. Use the names displayed in the PR's checks, including any matrix suffixes. The token needs read access to checks. Subscribe the webhook to Issues, Check suites, and Pull requests.
 
-The job must already exist: a person labels an issue `devin-fix`, Devin opens a pull request, and the worker moves the job to `checks_running`.
+The app reads the PR’s **current commit** and fetches its checks from GitHub. It waits until all configured checks finish. Each must report `success`; skipped or cancelled checks do not count as a pass. Empty configuration or missing checks leaves the job waiting. This is an explicit verification policy, not automatic discovery of branch-protection rules. Classic commit statuses are not supported.
 
-| Result received | What the app does | Job state |
-|---|---|---|
-| Checks pass | Posts that the fix is ready for human review | `checks_passed` |
-| Checks fail for the first time | Sends a repair request to the same Devin session and waits for another result | Stays `checks_running`; `attempts` becomes 1 |
-| Checks pass after that repair request | Posts that the fix is ready for human review | `checks_passed` |
-| Checks fail again | Stops requesting repairs and posts that a person needs to investigate | `checks_failed` |
+| Result | Outcome |
+|---|---|
+| All configured checks pass | `checks_passed`; ready for human review |
+| First failing commit | Request one repair in the same Devin session; keep waiting |
+| Repeated failure on that same commit | No additional repair or escalation |
+| Checks pass after repair | `checks_passed` |
+| Replacement commit still fails | `checks_failed`; a person investigates |
+| New commit or checks still running | `checks_running`; previous success is withdrawn |
 
-Final results are posted to GitHub and, when configured, Slack. The first failure sends Devin a message and records a note; it does not post a separate Slack or GitHub update. A person always decides whether to merge.
+The worker rechecks PRs, so events arriving before it discovers a PR are not permanently lost. GitHub read errors are retried on a later poll. Notification failures are logged without changing the engineering outcome.
 
-The app does not start repairs for arbitrary failing PRs. It handles results for work started through the labeled-issue flow.
+Use one repair owner: disable Devin's separate native CI-repair automation for these PRs if this app owns the follow-up. This app cannot limit work started independently by another integration.
 
-## Real CI results versus the demo
+## Simulate the workflow
 
-GitHub runs the checks. This app receives their result through a signed `check_suite` webhook; it does not run a test suite itself. Configure the target repository's webhook using the [setup guide](../dependency-remediation-orchestrator/README.md#start-a-fix), including **Check suites** in the selected events.
+Use a separate local demo database and set `ALLOW_SIMULATED_EVENTS=true`. Restart the API and worker. Keep this setting false for real use. See the [setup guide](../dependency-remediation-orchestrator/README.md).
 
-The demo's `simulate_ci.py` sends a made-up pass or fail result to the same handler. This lets you show the repair workflow while Superset's fork checks await approval. A simulated failure sends a **real message to Devin** and may use credits. A simulated pass does not prove the fix works.
-
-### Current limits
-
-- **Results are not matched to a PR or commit.** The handler chooses the latest job in `checks_running`, even if the result belongs to another PR. Use a controlled demo with one waiting job and no unrelated check events.
-- **Only `success` and `failure` are handled.** Cancelled, timed-out, skipped, and other results leave the job unchanged. The app does not combine multiple check suites into an overall verdict.
-- **Duplicate failures are not filtered.** A repeated webhook can use up the one repair attempt. Results received before the job reaches `checks_running` are ignored.
-- **Comments still assume a demo.** The GitHub success comment includes a simulation disclaimer even for a real result.
-
-The handler is in [`triggers/github.py`](../dependency-remediation-orchestrator/triggers/github.py). These limits need fixing before relying on it across real PRs.
-
-## Try the workflow locally
-
-Use the [setup guide](../dependency-remediation-orchestrator/README.md) to start the API and worker, install Python dependencies, and sign in to the GitHub CLI (`gh`). Then:
-
-1. Start a fix for a labeled issue. Wait until Devin opens a PR and `GET /jobs` shows `checks_running`.
-2. From `dependency-remediation-orchestrator/`, send the first failure:
+1. Label an issue `devin-fix` and wait for its PR and `checks_running` state.
+2. From `dependency-remediation-orchestrator/`, send a first failure:
 
    ```bash
-   python scripts/simulate_ci.py <pr_number> --repo owner/repo --conclusion failure
+   python scripts/simulate_ci.py <pr_number> --repo owner/repo --conclusion failure --attempt 1
    ```
 
-   Check the Devin session for the repair request. The job should remain `checks_running`.
-
-3. Choose the outcome to demonstrate:
+3. Show the repaired commit passing:
 
    ```bash
-   # Show a successful repair outcome.
-   python scripts/simulate_ci.py <pr_number> --repo owner/repo --conclusion success
+   python scripts/simulate_ci.py <pr_number> --repo owner/repo --conclusion success --attempt 2
    ```
 
-   Or:
+   Or use `--conclusion failure --attempt 2` to show escalation. Repeating attempt 1 demonstrates duplicate handling; it does not exhaust the repair.
 
-   ```bash
-   # Show a second failure that needs a person.
-   python scripts/simulate_ci.py <pr_number> --repo owner/repo --conclusion failure
-   ```
+4. Inspect `/jobs` and GitHub or Slack. Simulated outcomes are labeled and excluded from live metrics.
 
-4. Check `/jobs` and the GitHub or Slack update. Expect `checks_passed` for success or `checks_failed` for another failure.
+A simulated failure sends a **real repair request to Devin** and may use credits. A simulated pass runs no tests. The merge simulator records a demo outcome; it does not merge a PR. Use a fresh job for another scenario.
 
-Replace `owner/repo` with the target repository. Use a fresh job to demonstrate the other outcome. To show checks passing on the first try, send `success` at step 2 instead.
+## This repository's workflows
 
-## What this repository's GitHub Actions workflows do
-
-These are separate from the app's response to a target PR:
+These are separate from the app's response to a Superset PR:
 
 | Workflow | Purpose |
 |---|---|
-| [`CI`](../.github/workflows/ci.yml) | Runs the app's unit tests on pushes to `main` and on pull requests |
-| [`Demo CI Test`](../.github/workflows/demo-ci.yml) | Runs a small test on PRs to this repo so a demo can deliberately fail a real check |
+| [CI](../.github/workflows/ci.yml) | Run the app tests on pushes to main and pull requests |
+| [Demo CI Test](../.github/workflows/demo-ci.yml) | A deliberately breakable check for demonstrations |
 
-The demo test fails while either `TEMP_FAILURE_FIRST` or `TEMP_FAILURE_ALWAYS` appears in the root README. Both behave the same way. Remove the marker from the file and push the change to make that test pass; editing the PR description does not remove it.
-
-A failing demo check only reaches the app if this repository's webhook is configured. It does not create a tracked job by itself.
+The demo check fails while `TEMP_FAILURE_FIRST` or `TEMP_FAILURE_ALWAYS` appears in the root README. Both markers behave the same way. Remove the marker and push to make it pass. A failing check does not create a tracked remediation job by itself.

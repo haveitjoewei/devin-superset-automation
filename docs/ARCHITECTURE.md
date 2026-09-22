@@ -7,8 +7,8 @@ The app receives GitHub events, starts Devin repairs, and tracks each fix. Peopl
 | Component | Job |
 |---|---|
 | `api.py` | Check the webhook signature and route the event |
-| `triggers/github.py` | Start fixes and handle check results and merges |
-| `worker.py` | Poll Devin for progress, PR details, and usage |
+| `triggers/github.py` | Queue approved fixes and handle check results and merges |
+| `worker.py` | Start queued sessions; poll Devin and reconcile GitHub checks |
 | Postgres | Store jobs and provide `vw_job_metrics` for the dashboard |
 | `reporters/` | Post updates to Slack and GitHub |
 | Superset | Display results and timing from the database |
@@ -17,7 +17,7 @@ The app receives GitHub events, starts Devin repairs, and tracks each fix. Peopl
 
 ```mermaid
 flowchart LR
-  A[Person labels issue devin-fix] --> B[App starts Devin]
+  A[Person labels issue devin-fix] --> B[Worker starts queued Devin session]
   B --> C[Devin opens a PR]
   C --> D{Automated checks}
   D -->|Pass| E[Person reviews and merges]
@@ -36,9 +36,10 @@ The nightly detector opens issues for blocked upgrades. It does not approve them
 | State | Meaning |
 |---|---|
 | `queued` | Job recorded; waiting to start |
+| `starting` | Session creation in progress; an interrupted call needs inspection |
 | `fixing` | Devin is working |
 | `checks_running` | PR found; waiting for check results |
-| `checks_passed` | Checks reported success; ready for human review |
+| `checks_passed` | Configured checks passed on the current commit; ready for human review |
 | `merged` | A merge event was received |
 | `checks_failed` | Checks failed after one repair, or the Devin session failed |
 | `needs_human` | Session ended without a PR, or polling failed |
@@ -55,9 +56,12 @@ Other trigger sources would need new handlers. Automatically repairing failed De
 
 ## Current limits
 
-- **Check results match by PR number, not commit SHA.** A `check_suite` result resolves to the job that owns its PR, so concurrent jobs stay separate; matching on the head commit SHA as well would harden it against a re-run of an older commit.
-- **Session limits are incomplete.** The worker checks `CONCURRENCY_CAP`, but the webhook starts sessions directly. The setting does not enforce a system-wide cap.
-- **The spend guard uses recorded usage.** `DAILY_COST_CAP` blocks new work based on recorded usage for jobs created that day. It does not stop active sessions or guarantee a hard budget.
-- **Reporting endpoints are public.** Webhooks have signature checks; `/jobs` and `/metrics` have no authentication.
-- **Recovery is limited.** Failed API calls need reliable retries. Duplicate issues are checked by issue number, which is not enough for multiple repositories.
-- **Savings are estimates.** The dashboard and API share job data, but calculate metrics separately. See [metric assumptions](EVIDENCE.md#dashboard-figures).
+- **One repository, one worker.** `TARGET_REPO` scopes incoming events. Jobs remain unique by issue number. The worker owns session creation and enforces `CONCURRENCY_CAP` before starting work.
+- **Explicit verification policy.** `REQUIRED_CHECKS` names the GitHub Actions checks that must all succeed on the current PR commit. Empty, missing, or unfinished checks leave the job waiting. Classic commit statuses and automatic branch-protection discovery are not supported.
+- **Bounded repair.** The app requests one repair. Repeated failures on the same commit count once; a failed replacement commit needs human attention. Disable Devin's separate automatic CI-repair integration for these PRs so it does not independently trigger repairs.
+- **Usage is not a hard budget.** `ACU_ADMISSION_CAP` checks total recorded live ACUs before starting work. Existing and unreported consumption can exceed it. Legacy usage with unknown units is excluded.
+- **Recovery is conservative.** Read failures retry on the next poll. An interrupted or uncertain session-creation call needs inspection in Devin before retrying. Reporting failures are logged without changing the job outcome; notification delivery has no durable retry queue.
+- **Reporting endpoints are public.** Webhooks have signature checks; `/jobs` and `/metrics` have no authentication. Keep the service private or put authentication in front of it.
+- **Demo and historical data.** Simulated outcomes and seeded rows are excluded from live reporting. Historical successes without a verified commit are counted as unverified, not successful. See [metric definitions](EVIDENCE.md#dashboard-figures).
+
+The [original architecture image](images/architecture.png) is retained for the submitted walkthrough. Its Dependabot-PR discovery label predates the current requirements-comment scanner; the flow above describes the implementation.

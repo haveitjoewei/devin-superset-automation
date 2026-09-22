@@ -26,6 +26,8 @@ class SlackReporter:
         await self._post(message, thread_ts)
 
         # Special handling for final states
+        if getattr(job, "is_simulated", False):
+            return
         if job.state == "checks_passed":
             await self._notify_oncall_success(job, thread_ts)
         elif job.state in ["checks_failed", "needs_human"]:
@@ -71,11 +73,12 @@ class SlackReporter:
             "needs_human": "Needs a human — Devin couldn't finish",
             "merged": f"🎉 PR #{job.pr_number} merged — fix shipped",
         }
-        return messages.get(job.state, f"{previous_state} → {job.state}")
+        message = messages.get(job.state, f"{previous_state} → {job.state}")
+        return f"SIMULATION — not verified: {message}" if getattr(job, "is_simulated", False) else message
     
     async def _notify_oncall_success(self, job: Job, thread_ts: str):
         """Notify on-call for successful validation"""
-        pr_link = f"<https://github.com/haveitjoewei/superset/pull/{job.pr_number}|PR #{job.pr_number}>" if job.pr_number else "No PR"
+        pr_link = f"<{job.issue_url.split('/issues/')[0]}/pull/{job.pr_number}|PR #{job.pr_number}>" if job.pr_number else "No PR"
         message = f"Ready for human review: {pr_link}. Automated checks passed — not auto-merged."
         await self.slack.notify_oncall(message, thread_ts)
     

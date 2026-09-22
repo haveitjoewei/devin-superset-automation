@@ -30,11 +30,15 @@ gh api graphql -f query='{ search(query:"repo:apache/superset author:app/dependa
 
 ## Dashboard figures
 
-Job counts and timestamps come from the app. Seeded demo jobs and simulated events can also appear in that data.
+The original screenshots contain seeded jobs, simulated results, and an invalid dollar-savings calculation. They illustrate the demo layout, not measured performance.
 
-- The app assigns **two estimated hours saved** when a job's checks pass. It does not measure avoided developer work. This differs from the three-hour business-case assumption above.
-- `mttr_hours` measures time from labeling to reported check success, not time to merge.
-- The success rate counts passed or merged jobs against passed, merged, and failed jobs. It excludes `needs_human` jobs.
-- `net_saved` values time at $90/hour and subtracts recorded Devin usage. That usage may be in ACUs rather than dollars, so this is not a reliable dollar-saving figure without conversion.
+Current reporting:
 
-Use actual manual effort, billing rates, and verified outcomes before making a financial claim.
+- Excludes seeded `demo-*` sessions and jobs marked as simulated.
+- Counts verified successes against successes, failures, human escalations, and historical unverified outcomes. Active work is shown separately by state.
+- Assigns **two estimated hours** per verified success; this is not measured avoided work and differs from the three-hour opportunity assumption above.
+- Measures time from labeling to verified check success, not merge time.
+- Reports Devin usage in **ACUs**. Old records with unknown units are excluded from usage totals and counted as unknown.
+- Returns null for `devin_cost` and `net_saved`; there is no defensible dollar calculation yet.
+
+Use measured manual effort, billing rates, and verified outcomes before making a financial claim.

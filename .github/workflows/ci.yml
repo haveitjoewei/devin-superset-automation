@@ -22,3 +22,8 @@ jobs:
           pip install pytest
       - name: Run unit tests
         run: pytest tests -q
+      - name: Build image and verify environment files are excluded
+        run: |
+          printf 'DOCKER_CONTEXT_TEST=not-a-secret\n' > .env
+          docker build -t devin-auto-fix:test .
+          docker run --rm --entrypoint sh devin-auto-fix:test -c 'test ! -e /app/.env'

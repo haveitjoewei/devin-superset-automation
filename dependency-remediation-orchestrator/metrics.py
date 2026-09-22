@@ -1,73 +1,41 @@
-from sqlalchemy import func
 from datetime import datetime, timedelta, timezone
+from sqlalchemy import select
 from database import SessionLocal
 from models import Job
 
-# A job is a success once its checks pass; `merged` is that same success, further along.
-SUCCESS_STATES = ["checks_passed", "merged"]
+SUCCESS_STATES = {"checks_passed", "merged"}
+STATES = ["queued", "starting", "fixing", "checks_running", "checks_passed", "merged", "checks_failed", "needs_human"]
+
 
 def get_job_metrics():
-    """Calculate job metrics for reporting"""
     with SessionLocal() as session:
-        # Basic counts
-        total_jobs = session.query(func.count(Job.id)).scalar()
-        validated_jobs = session.query(func.count(Job.id)).filter(Job.state.in_(SUCCESS_STATES)).scalar()
-        failed_jobs = session.query(func.count(Job.id)).filter(Job.state == "checks_failed").scalar()
-        needs_human_jobs = session.query(func.count(Job.id)).filter(Job.state == "needs_human").scalar()
-
-        # Success rate
-        completed_jobs = validated_jobs + failed_jobs
-        success_rate = (validated_jobs / completed_jobs * 100) if completed_jobs > 0 else 0
-
-        # Throughput (per day/week)
+        all_jobs = session.execute(select(Job)).scalars().all()
+        jobs = [j for j in all_jobs if not j.is_simulated and not (j.devin_session_id or "").startswith("demo-")]
+        # Historical passes lack a verified commit; do not present them as measured success.
+        passed = [j for j in jobs if j.state in SUCCESS_STATES and j.ci_head_sha]
+        failed = sum(j.state == "checks_failed" for j in jobs)
+        needs_human = sum(j.state == "needs_human" for j in jobs)
+        unverified = sum(j.state in SUCCESS_STATES and not j.ci_head_sha for j in jobs)
+        completed = len(passed) + failed + needs_human + unverified
         week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-        validated_this_week = session.query(func.count(Job.id)).filter(
-            Job.state.in_(SUCCESS_STATES),
-            Job.validated_at >= week_ago
-        ).scalar()
-        throughput_per_day = validated_this_week / 7
-        throughput_per_week = validated_this_week
-        
-        # Dev hours saved
-        dev_hours_saved = session.query(func.sum(Job.effort_hours)).filter(
-            Job.state.in_(SUCCESS_STATES)
-        ).scalar() or 0
-        
-        # Devin cost
-        devin_cost = session.query(func.sum(Job.cost)).scalar() or 0
-        
-        # Net saved (assuming $90/hour for dev time)
-        net_saved = (dev_hours_saved * 90) - devin_cost
-        
-        # MTTR (Mean Time To Remediation) - PostgreSQL version
-        mttr_results = session.query(
-            func.avg(
-                func.extract('epoch', Job.validated_at - Job.labeled_at) / 3600
-            )
-        ).filter(
-            Job.state.in_(SUCCESS_STATES),
-            Job.validated_at.isnot(None),
-            Job.labeled_at.isnot(None)
-        ).scalar()
-        mttr_hours = float(mttr_results) if mttr_results else 0
-
-        # State breakdown
-        state_breakdown = {}
-        for state in ["queued", "fixing", "checks_running", "checks_passed", "merged", "checks_failed", "needs_human"]:
-            count = session.query(func.count(Job.id)).filter(Job.state == state).scalar()
-            state_breakdown[state] = count
-        
+        weekly = sum(j.validated_at is not None and j.validated_at.replace(tzinfo=timezone.utc) >= week_ago for j in passed)
+        durations = [(j.validated_at - j.labeled_at).total_seconds() / 3600 for j in passed if j.validated_at and j.labeled_at]
         return {
-            "success_rate": round(success_rate, 2),
-            "throughput_per_day": round(throughput_per_day, 2),
-            "throughput_per_week": throughput_per_week,
-            "dev_hours_saved": round(dev_hours_saved, 2),
-            "devin_cost": round(devin_cost, 2),
-            "net_saved": round(net_saved, 2),
-            "mttr_hours": round(mttr_hours, 2),
-            "state_breakdown": state_breakdown,
-            "total_jobs": total_jobs,
-            "validated_jobs": validated_jobs,
-            "failed_jobs": failed_jobs,
-            "needs_human_jobs": needs_human_jobs
+            "success_rate": round(100 * len(passed) / completed, 2) if completed else 0,
+            "success_rate_basis": "Verified successes / (successes + failures + escalations + unverified outcomes)",
+            "throughput_per_day": round(weekly / 7, 2),
+            "throughput_per_week": weekly,
+            "estimated_dev_hours_saved": round(sum(j.effort_hours for j in passed), 2),
+            "acu_usage": round(sum(j.acu_usage or 0 for j in jobs), 2),
+            "usage_unknown_jobs": sum(j.acu_usage is None for j in jobs),
+            "devin_cost": None,
+            "net_saved": None,
+            "mttr_hours": round(sum(durations) / len(durations), 2) if durations else 0,
+            "state_breakdown": {state: sum(j.state == state for j in jobs) for state in STATES},
+            "total_jobs": len(jobs),
+            "validated_jobs": len(passed),
+            "failed_jobs": failed,
+            "needs_human_jobs": needs_human,
+            "unverified_outcomes": unverified,
+            "excluded_simulated_jobs": len(all_jobs) - len(jobs),
         }

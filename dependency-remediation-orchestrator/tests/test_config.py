@@ -19,3 +19,9 @@ def test_old_env_entries_do_not_break_settings(tmp_path, monkeypatch):
 
     assert settings.CONCURRENCY_CAP == 3
     assert not retired.keys() & settings.model_dump().keys()
+
+
+def test_old_cost_cap_name_keeps_its_value(monkeypatch):
+    monkeypatch.delenv("ACU_ADMISSION_CAP", raising=False)
+    monkeypatch.setenv("DAILY_COST_CAP", "12")
+    assert Settings(_env_file=None).ACU_ADMISSION_CAP == 12

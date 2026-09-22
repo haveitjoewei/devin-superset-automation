@@ -24,3 +24,7 @@ class Job(Base):
     validated_at = Column(DateTime, nullable=True)
     labeled_at = Column(DateTime, nullable=True)
     slack_thread_ts = Column(String, nullable=True)
+    ci_repair_sha = Column(String, nullable=True)
+    ci_head_sha = Column(String, nullable=True)
+    is_simulated = Column(Integer, default=0, nullable=False)
+    acu_usage = Column(Float, nullable=True)
