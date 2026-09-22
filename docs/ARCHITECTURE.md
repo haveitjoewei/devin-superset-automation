@@ -21,11 +21,13 @@ flowchart LR
   B --> C[Devin opens a PR]
   C --> D{Automated checks}
   D -->|Pass| E[Person reviews and merges]
-  D -->|Fail| F[Devin gets one repair attempt]
-  F --> D
+  D -->|Fail| F{Repair already requested?}
+  F -->|No| G[Ask Devin to repair]
+  G --> D
+  F -->|Yes| H[Flag for a person]
 ```
 
-A second check failure stops the repair loop and asks for human attention. The app records progress in Postgres and posts updates to Slack and GitHub.
+A second check failure stops further automatic repair requests and asks for human attention. See [CI behavior and demo steps](DEMO_CI_SCENARIOS.md) for the supported outcomes. The app records progress in Postgres and posts updates to Slack and GitHub.
 
 The nightly detector opens issues for blocked upgrades. It does not approve them or start repairs.
 

@@ -49,6 +49,8 @@ For local development, `ngrok http 8000` can provide the public address. Update 
 
 Add `devin-fix` to an issue to start Devin. This creates a real session and uses Devin credits.
 
+Once Devin opens a PR, the app handles passing checks, requests one repair after a failure, and flags a second failure for a person. See [CI behavior and demo steps](../docs/DEMO_CI_SCENARIOS.md) for the supported outcomes and current limits.
+
 ### Replay events locally
 
 With Python dependencies installed and the GitHub CLI (`gh`) signed in, you can send events directly to the local API. Run these from this folder, one step at a time:
@@ -78,6 +80,18 @@ These scripts default to `haveitjoewei/superset` if `--repo` is omitted. The iss
 For a Superset dashboard, connect Superset to this app's Postgres database and create a dataset from `vw_job_metrics`. If Superset runs in Docker on your Mac and Postgres uses the published host port, use `host.docker.internal:5432` as the database address. The API creates the view on startup; build the dashboard charts in Superset.
 
 Savings figures use assumptions. See [metric limits](../docs/EVIDENCE.md#dashboard-figures).
+
+## Where the code lives
+
+| Files | Responsibility |
+|---|---|
+| `api.py` | Receive GitHub events and serve status endpoints |
+| `triggers/github.py` | Start jobs and handle CI results and merges |
+| `worker.py` | Check Devin sessions for progress and pull requests |
+| `devin_client.py`, `github_client.py`, `slack_client.py` | Call the external services |
+| `reporters/` | Format and send progress updates |
+| `config.py`, `database.py`, `models.py`, `metrics.py` | Settings, stored jobs, and reporting figures |
+| `scripts/`, `tests/` | Local tools and app tests |
 
 ## Other scripts
 

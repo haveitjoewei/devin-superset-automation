@@ -31,6 +31,16 @@ A Superset dashboard shows job results, timing, and estimated effort saved.
 |---|---|---|
 | ![Dashboard](docs/images/dashboard.png) | ![Slack thread](docs/images/slack-thread.png) | ![Pull request](docs/images/pr.png) |
 
+## Automatic repair when checks fail
+
+The app also handles CI (continuous integration): the automated tests and build checks that run on a pull request. For a fix already being tracked:
+
+- **Checks pass:** mark the fix ready for human review.
+- **Checks fail:** ask the same Devin session to repair the failure once.
+- **Checks fail again:** stop requesting repairs and notify a person through GitHub and Slack, if configured.
+
+This behavior is implemented. The demo can exercise it with simulated results; real results arrive through a GitHub webhook. It currently selects the latest waiting job rather than matching the result to a specific PR, so it is limited to a controlled demo. See [supported CI behavior and how to try it](docs/DEMO_CI_SCENARIOS.md).
+
 ## What the demo proves
 
 The demo connects a GitHub issue to a Devin session and tracks the resulting fix. The example fixes were tested locally, as described in the [verification notes](docs/VERIFICATION.md).
@@ -43,6 +53,6 @@ The business case estimates about 450 upgrades a year could need help, based on 
 
 - [Setup and commands](dependency-remediation-orchestrator/README.md)
 - [App structure and job states](docs/ARCHITECTURE.md)
-- [Demo: what happens when checks fail](docs/DEMO_CI_SCENARIOS.md)
+- [CI checks, automatic repair, and demo steps](docs/DEMO_CI_SCENARIOS.md)
 
 This is a working demo. Before using it in production, fix how check results are matched to jobs, enforce limits on new sessions, protect the reporting endpoints, and add reliable retries. [Architecture notes](docs/ARCHITECTURE.md#current-limits) explain these limits.
