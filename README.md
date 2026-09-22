@@ -11,7 +11,7 @@ This project gives that repair work to Devin. A person chooses an upgrade to fix
 - [Video walkthrough](https://www.loom.com/share/8458da2bc6a64c43893ee9ed99355578)
 - Example fixes: [paramiko #37](https://github.com/haveitjoewei/superset/pull/37) and [apispec #29](https://github.com/haveitjoewei/superset/pull/29)
 - [Local test results and remaining review questions](docs/VERIFICATION.md)
-- [Presentation](docs/deck.html)
+- [Presentation](https://haveitjoewei.github.io/devin-superset-automation/deck.html)
 
 ## How it works
 
